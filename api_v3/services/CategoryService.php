@@ -127,7 +127,7 @@ class CategoryService extends KalturaBaseService
 
 		if (kEntitlementUtils::getEntitlementEnforcement())
 		{
-			$currentKuserCategoryKuser = categoryKuserPeer::retrievePermittedKuserInCategory($categoryDb->getId(), kCurrentContext::getCurrentKsKuserId());
+			$currentKuserCategoryKuser = categoryKuserPeer::retrievePermittedKuserInCategory($categoryDb->getId(), kCurrentContext::getCurrentKsKuserId(), array(PermissionName::CATEGORY_EDIT));
 			if(!$currentKuserCategoryKuser || $currentKuserCategoryKuser->getPermissionLevel() != CategoryKuserPermissionLevel::MANAGER)
 				throw new KalturaAPIException(KalturaErrors::NOT_ENTITLED_TO_UPDATE_CATEGORY);
 		}
@@ -148,10 +148,10 @@ class CategoryService extends KalturaBaseService
 		$category->fromObject($categoryDb, $this->getResponseProfile());
 		return $category;
 	}
-	
+
 	/**
 	 * Delete a Category
-	 * 
+	 *
 	 * @action delete
 	 * @param int $id
 	 * @param KalturaNullableBoolean $moveEntriesToParentCategory
@@ -177,11 +177,11 @@ class CategoryService extends KalturaBaseService
 		try
 		{
 			if($moveEntriesToParentCategory)
-				$categoryDb->setDeletedAt(time());
-			else 
-				$categoryDb->setDeletedAt(time(), 0);
-				
-			$categoryDb->save();	
+				$categoryDb->setDeletedAt(time(), true);
+			else
+				$categoryDb->setDeletedAt(time(), false);
+
+			$categoryDb->save();
 			$this->getPartner()->removeFeaturesStatus(IndexObjectType::LOCK_CATEGORY);
 		}
 		catch(Exception $ex)
@@ -189,8 +189,8 @@ class CategoryService extends KalturaBaseService
 			$this->getPartner()->removeFeaturesStatus(IndexObjectType::LOCK_CATEGORY);
 			throw $ex;
 		}
-	} 
-	
+	}
+
 	/**
 	 * List all categories
 	 * 

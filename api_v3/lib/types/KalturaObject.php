@@ -11,6 +11,8 @@ abstract class KalturaObject implements IApiObject
 	 */
 	public $relatedObjects;
 	
+	private $purifyHtml = false;
+	
 	static protected $sourceFilesCache = array();
 	static protected $classPrivatesCache = array();
 	
@@ -372,22 +374,29 @@ abstract class KalturaObject implements IApiObject
 		if (!class_exists($fromObjectClass))
 		{
 			$cacheFileName = kConf::get("cache_root_path") . "/api_v3/fromObject/{$fromObjectClass}.php";
-			if (!file_exists($cacheFileName))
+			$max_include_retries=10;
+			$fromObjectClassCode=null;
+			while((!@include_once($cacheFileName)) and $max_include_retries--)
 			{
+				if(!$fromObjectClassCode)
+				{
+					$fromObjectClassCode = $this->generateFromObjectClass($srcObj, $fromObjectClass);
+					if (!$fromObjectClassCode)
+						return;
+				}
+
 				$cacheDir = dirname($cacheFileName);
 				if (!is_dir($cacheDir))
 				{
 					mkdir($cacheDir);
-					chmod($cacheDir, 0755);
+					chmod($cacheDir, 0775);
 				}
-	
-				$fromObjectClassCode = $this->generateFromObjectClass($srcObj, $fromObjectClass);
-				if (!$fromObjectClassCode)
-					return;
-				kFile::safeFilePutContents($cacheFileName, $fromObjectClassCode);
+				kFile::safeFilePutContents($cacheFileName, $fromObjectClassCode,0644);
 			}
-	
-			require_once($cacheFileName);
+			if (!class_exists($fromObjectClass))
+			{
+				throw new Exception("Could not include cached code file - {$cacheFileName}");
+			}
 		}
 	
 		$fromObjectClass::fromObject($this, $srcObj, $responseProfile);
@@ -457,10 +466,11 @@ abstract class KalturaObject implements IApiObject
 			$this->$this_prop = isset($source_array[$object_prop]) ? $source_array[$object_prop] : null;
 		}
 	}
-	
+
 	public function toObject($object_to_fill = null, $props_to_skip = array())
 	{
 		$this->validateForUsage($object_to_fill, $props_to_skip); // will check that not useable properties are not set 
+
 		$class = get_class($this);
 		
 		// enables extension with default empty object
@@ -520,9 +530,12 @@ abstract class KalturaObject implements IApiObject
 					$finalValues[] = kPluginableEnumsManager::apiToCore($enumType, $val);
 				$value = implode(',', $finalValues);
 			}
-			elseif (is_string($value) && ! kXml::isXMLValidContent($value) )
+			elseif (is_string($value))
 			{
-				throw new KalturaAPIException ( KalturaErrors::INVALID_PARAMETER_CHAR, $this_prop );
+				if (! kXml::isXMLValidContent($value))
+					throw new KalturaAPIException ( KalturaErrors::INVALID_PARAMETER_CHAR, $this_prop );
+				else if($this->purifyHtml)
+					kHtmlPurifier::purify(get_class($object_to_fill), $object_prop, $value);
 			}
 			
 			$setter_callback = array ( $object_to_fill ,"set{$object_prop}");
@@ -537,15 +550,20 @@ abstract class KalturaObject implements IApiObject
 	public function toUpdatableObject ( $object_to_fill , $props_to_skip = array() )
 	{
 		$this->validateForUpdate($object_to_fill, $props_to_skip); // will check that not updatable properties are not set 
-		
-		return $this->toObject($object_to_fill, $props_to_skip);
+		$this->purifyHtml = true;
+		$retObj = $this->toObject($object_to_fill, $props_to_skip);
+		$this->purifyHtml = false;
+		return $retObj;
 	}
 	
 	public function toInsertableObject ( $object_to_fill = null , $props_to_skip = array() )
 	{
 		$this->validateForInsert($props_to_skip); // will check that not insertable properties are not set 
-		
-		return $this->toObject($object_to_fill, $props_to_skip);
+
+		$this->purifyHtml = true;
+		$retObj = $this->toObject($object_to_fill, $props_to_skip);
+		$this->purifyHtml = false;
+		return $retObj;
 	}
 	
 	public function validatePropertyNotNull($propertiesNames, $xor = false)
@@ -718,7 +736,6 @@ abstract class KalturaObject implements IApiObject
 					}
 				}
 
-				$this->validateHtmlTags($className, $property);
 			}
 		}
 	}
@@ -773,29 +790,12 @@ abstract class KalturaObject implements IApiObject
 						header($this->getDeclaringClassName($propertyName).'-'.$propertyName.' error: '.$e->getMessage());
 					}
 				}
-
-				$this->validateHtmlTags($className, $property);
 			}
 		}
 		
 		return $updatableProperties;
 	}
-	
-	/**
-	 * @param KalturaPropertyInfo $property
-	 */
-	public function validateHtmlTags( $className, $property )
-	{
-		if ( $property->getType() != 'string' )
-		{
-			return;
-		}
-
-		$propName = $property->getName();
-		$value = $this->$propName;
-		return kHtmlPurifier::purify($className, $propName, $value);
-	}
-
+		
 	public function validateForUsage($sourceObject, $propertiesToSkip = array())
 	{
 		$useableProperties = array();

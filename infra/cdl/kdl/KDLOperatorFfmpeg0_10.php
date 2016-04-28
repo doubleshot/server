@@ -66,7 +66,7 @@ $fltStr = null;
 		
 		$filters = $this->generateVideoFilters($vid);
 		if(count($filters)>0){
-			$fltStr = implode(',', $filters);
+			$fltStr = implode(';', $filters);
 			$cmdStr.= " -vf '$fltStr'";
 		}
 		return $cmdStr;
@@ -135,7 +135,6 @@ $fltStr = null;
 			 * For IMX - crop the source
 			 */
 		if(isset($vid->_isCropIMX) && $vid->_isCropIMX==true){
-			$aaa = 0;
 			$filters[] = "crop=in_w:in_h-32:in_w:32";
 		}
 		return $filters;
@@ -167,8 +166,8 @@ $fltStr = null;
 			$duration=$target->_clipDur/1000;
 		else
 			$duration = $target->_container->_duration/1000;
-			
-/*  Replace self-calculated KF's with FFMpeg formula
+
+/*  Replace self-calculated KF's with FFMpeg formula			
 		if($duration>7200) {
 			$forcedKF = "expr:'gte(t,n_forced*".round($gopInSecs).")'";
 		}
@@ -328,7 +327,13 @@ KalturaLog::log("Supported DNXHD - br:".$target->_video->_bitRate.",w:$width,h:$
 			}
 				
 		}
-
+		
+			// Encryption unsupported by ffmpeg < 2.7.2
+		if($target->_isEncrypted==true){
+			$warnings[KDLConstants::ContainerIndex][] = 
+				KDLWarnings::ToString(KDLWarnings::TranscoderLimitation, $this->_id)."(encryption)";
+			return true;
+		}
 		return $this->checkBasicFFmpegConstraints($source, $target, $errors, $warnings);
 	}
 }

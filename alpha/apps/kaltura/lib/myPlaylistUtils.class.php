@@ -6,6 +6,8 @@ class myPlaylistUtils
 {
 	// change the total results to 30 for performance reasons
 	const TOTAL_RESULTS = 200;
+	
+	const MAX_STITCHED_PLAYLIST_ENTRY_COUNT = 100;
 
 	const CONTEXT_DELIMITER = "context";
 	
@@ -304,7 +306,7 @@ class myPlaylistUtils
 		
 		if (!self::$isAdminKs)
 		{
-			self::addSchedulingToCriteria($c);
+			self::addSchedulingToCriteria($c, $entry_filter);
 		}
 		
 		self::addModerationToCriteria($c);
@@ -588,7 +590,7 @@ class myPlaylistUtils
 			
 			if (!self::$isAdminKs)
 			{
-				self::addSchedulingToCriteria($c);
+				self::addSchedulingToCriteria($c, $entry_filter);
 			}
 			
 			self::addModerationToCriteria($c);
@@ -624,7 +626,8 @@ class myPlaylistUtils
 		$entry_list = array();
 		foreach ( $entry_ids_list as $entryId )
 		{
-			$entry_list[] = $entry_map[$entryId];
+			if(isset($entry_map[$entryId]))
+				$entry_list[] = $entry_map[$entryId];
 		}
 
 		return $entry_list;		 
@@ -856,17 +859,84 @@ HTML;
 		
 		return $id_list;
 	}
-	
-	private static function addSchedulingToCriteria(Criteria $c)
+
+	private static function addSchedulingCriterion(Criteria $c, $field, $min, $max, $allowNull)
 	{
-		$startDateCriterion = $c->getNewCriterion(entryPeer::START_DATE, kApiCache::getTime(), Criteria::LESS_EQUAL);
-		$startDateCriterion->addOr($c->getNewCriterion(entryPeer::START_DATE, null));
-		
-		$endDateCriterion = $c->getNewCriterion(entryPeer::END_DATE, kApiCache::getTime(), Criteria::GREATER_EQUAL);
-		$endDateCriterion->addOr($c->getNewCriterion(entryPeer::END_DATE, null));
-		
-		$c->addAnd($startDateCriterion);
-		$c->addAnd($endDateCriterion);
+		$criterion = null;
+		if($min){
+			$criterion = $c->getNewCriterion($field, $min, Criteria::GREATER_EQUAL);
+		}
+
+		if($max){
+			if($criterion){
+				$criterion->addAnd($c->getNewCriterion($field, $max, Criteria::LESS_EQUAL));
+			}
+			else {
+				$criterion = $c->getNewCriterion($field, $max, Criteria::LESS_EQUAL);
+			}
+		}
+
+		if($allowNull){
+			$criterion->addOr($c->getNewCriterion($field, null));
+		}
+
+		$c->addAnd($criterion);
+	}
+
+	private static function addSchedulingToCriteria(Criteria $c, entryFilter $filter = null)
+	{
+		$min = 0;
+		$max = kApiCache::getTime();
+		$allowNull = true;
+		if($filter)
+		{
+			if ($filter->is_set('_lteornull_start_date')) {
+				$max = min($max, $filter->get('_lteornull_start_date'));
+				$filter->unsetByName('_lteornull_start_date');
+			}
+			if ($filter->is_set('_gteornull_start_date')) {
+				$min = max($min, $filter->get('_gteornull_start_date'));
+				$filter->unsetByName('_gteornull_start_date');
+			}
+			if ($filter->is_set('_lte_start_date')) {
+				$max = min($max, $filter->get('_lte_start_date'));
+				$allowNull = false;
+				$filter->unsetByName('_lte_start_date');
+			}
+			if ($filter->is_set('_gte_start_date')) {
+				$min = max($min, $filter->get('_gte_start_date'));
+				$allowNull = false;
+				$filter->unsetByName('_gte_start_date');
+			}
+		}
+		self::addSchedulingCriterion($c, entryPeer::START_DATE, $min, $max, $allowNull);
+
+
+		$min = kApiCache::getTime();
+		$max = 0;
+		$allowNull = true;
+		if($filter)
+		{
+			if ($filter->is_set('_lteornull_end_date')) {
+				$max = min($max, $filter->get('_lteornull_end_date'));
+				$filter->unsetByName('_lteornull_end_date');
+			}
+			if ($filter->is_set('_gteornull_end_date')) {
+				$min = max($min, $filter->get('_gteornull_end_date'));
+				$filter->unsetByName('_gteornull_end_date');
+			}
+			if ($filter->is_set('_lte_end_date')) {
+				$max = min($max, $filter->get('_lte_end_date'));
+				$allowNull = false;
+				$filter->unsetByName('_lte_end_date');
+			}
+			if ($filter->is_set('_gte_end_date')) {
+				$min = max($min, $filter->get('_gte_end_date'));
+				$allowNull = false;
+				$filter->unsetByName('_gte_end_date');
+			}
+		}
+		self::addSchedulingCriterion($c, entryPeer::END_DATE, $min, $max, $allowNull);
 	}
 	
 	private static function addModerationToCriteria(Criteria $c)
@@ -962,5 +1032,42 @@ HTML;
                         
 	        }
 	    }
+	}
+	
+	public static function executeStitchedPlaylist(entry $playlist)
+	{
+		$pager = new kFilterPager();
+		$pager->setPageIndex(1);
+		$pager->setPageSize(self::MAX_STITCHED_PLAYLIST_ENTRY_COUNT);
+		$entries = self::executePlaylist(
+				$playlist->getPartnerId(),
+				$playlist,
+				null,
+				false, 
+				$pager);
+		
+		$entryIds = array();
+		$durations = array();
+		$mediaEntry = null;
+		$maxFlavorCount = 0;
+		foreach ($entries as $entry)
+		{
+			$entryIds[] = $entry->getId();
+			$durations[] = $entry->getLengthInMsecs();
+
+			// Note: choosing a reference entry that has max(flavor count) and min(int id)
+			//	the reason for the int id condition is to avoid frequent changes to the 
+			//	reference entry in case the playlist content changes 
+			$flavorCount = count(explode(',', $entry->getFlavorParamsIds()));
+			if (!$mediaEntry ||
+				$flavorCount > $maxFlavorCount ||
+				($flavorCount == $maxFlavorCount && $entry->getIntId() < $mediaEntry->getIntId()))
+			{
+				$mediaEntry = $entry;
+				$maxFlavorCount = $flavorCount;
+			}
+		}
+
+		return array($entryIds, $durations, $mediaEntry);
 	}
 }

@@ -337,7 +337,7 @@ class KalturaBaseEntry extends KalturaObject implements IRelatedFilterable, IApi
 	 * list of user ids that are entitled to edit the entry (no server enforcement) The difference between entitledUsersEdit and entitledUsersPublish is applicative only
 	 * 
 	 * @var string
-	 * @filter matchand
+	 * @filter matchand,matchor
 	 */
 	public $entitledUsersEdit;
 		
@@ -345,7 +345,7 @@ class KalturaBaseEntry extends KalturaObject implements IRelatedFilterable, IApi
 	 * list of user ids that are entitled to publish the entry (no server enforcement) The difference between entitledUsersEdit and entitledUsersPublish is applicative only
 	 * 
 	 * @var string
-	 * @filter matchand
+	 * @filter matchand,matchor
 	 */
 	public $entitledUsersPublish;
 
@@ -357,6 +357,14 @@ class KalturaBaseEntry extends KalturaObject implements IRelatedFilterable, IApi
 	 * @readonly
 	 */
 	public $capabilities;
+
+	/**
+	 * Template entry id 
+	 *
+	 * @var string
+	 * @insertonly
+	 */
+	public $templateEntryId;
 	
 	/*
 	 * mapping between the field on this object (on the left) and the setter/getter on the entry object (on the right)  
@@ -403,6 +411,7 @@ class KalturaBaseEntry extends KalturaObject implements IRelatedFilterable, IApi
 	 	"entitledUsersPublish" => "entitledPusersPublish",
 	 	"operationAttributes",
 		"capabilities",
+		"templateEntryId",
 	 );
 		 
 	public function getMapBetweenObjects()

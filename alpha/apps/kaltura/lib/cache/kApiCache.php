@@ -576,6 +576,12 @@ class kApiCache extends kApiCacheBase
 					$cacheExpiry = time() + $expiryInterval;
 					$this->_cacheRules[self::CACHE_MODE_ANONYMOUS] = array($cacheExpiry, $expiryInterval, $conditions);
 					$this->_cacheRulesDirty = true;
+					
+					// in case of multirequest, limit the cache time of the multirequest according to this request
+					$this->setExpiry($expiryInterval);
+					
+					//In case of anonymous request take the cacheTTL to be the min form expiryInterval and the previously calculated cache expiry
+					$this->minCacheTTL = min($this->minCacheTTL, $expiryInterval);
 				}
 				
 				if (count(self::$_activeInstances) > 1)
@@ -598,6 +604,9 @@ class kApiCache extends kApiCacheBase
 				if (kConf::hasParam('disable_cache_warmup_client_tags') && !in_array($this->clientTag, kConf::get('disable_cache_warmup_client_tags')))
 					self::warmCache($this->_cacheKey);
 			}
+			
+			// in case of multirequest, limit the cache time of the multirequest according to this request
+			$this->setExpiry($expiryInterval);
 
 			return self::CACHE_MODE_ANONYMOUS;
 		}
@@ -768,9 +777,30 @@ class kApiCache extends kApiCacheBase
 		{
 			return false;
 		}
-		if (!$ks ||	(!$ks->isAdmin() && ($ks->user === "0" || $ks->user === null)))
+
+		if (!$ks)
 			return true;
-		
+
+		if(!$ks->isAdmin() && ($ks->user === "0" || $ks->user === null ))
+		{
+			$privileges = $ks->getParsedPrivileges();
+			if (!$privileges || !array_key_exists (kSessionBase::PRIVILEGE_SET_ROLE,$privileges))
+				return true;
+
+			if (kConf::hasParam('anonymous_roles_to_cache'))
+			{
+				$ksRoles = $privileges[kSessionBase::PRIVILEGE_SET_ROLE];
+				$rolesToCacheList = kConf::get('anonymous_roles_to_cache');
+				foreach ($rolesToCacheList as $roleKey => $roleValue)
+				{
+					if (is_array($ksRoles) && in_array($roleKey, $ksRoles))
+						return true;
+				}
+			}
+
+			return false;
+		}
+
 		if (kConf::hasParam('cache_anonymous_users'))
 		{
 			$anonymousUsers = kConf::get('cache_anonymous_users');

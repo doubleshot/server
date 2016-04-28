@@ -64,7 +64,7 @@ class KalturaFlavorParams extends KalturaAssetParams
 	/**
 	 * The frame rate of the Flavor Params
 	 * 
-	 * @var int
+	 * @var float
 	 */
 	public $frameRate;
 	
@@ -205,6 +205,16 @@ class KalturaFlavorParams extends KalturaAssetParams
 	 * @var string;
 	 */
 	public $watermarkData;
+
+	/**
+	 * @var string;
+	 */
+	public $subtitlesData;
+
+	/**
+	 * @var int
+	 */
+	public $isEncrypted;
 	
 	/**
 	 * @var int
@@ -251,6 +261,8 @@ class KalturaFlavorParams extends KalturaAssetParams
 		"videoConstantBitrate",
 		"videoBitrateTolerance",
 		"watermarkData",
+		"subtitlesData",
+		"isEncrypted",
 		"clipOffset",
 		"clipDuration",
 	);

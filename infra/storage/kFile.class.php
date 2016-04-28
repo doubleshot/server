@@ -591,7 +591,7 @@ class kFile
 		$length = strlen($string);
 
 		// we shouldnt return a chunked encoded header as we read the whole response and echo it after curl extracts it
-		if (strpos($string, "Transfer-Encoding: chunked") === FALSE)
+		if (stripos($string, "Transfer-Encoding: chunked") === FALSE)
 		{
 			header($string);
 		}
@@ -702,7 +702,7 @@ class kFileData
 	public $content = NULL;
 	public $raw_timestamp = NULL;
 	
-	public function kFileData($full_file_path, $add_content = false)
+	public function __construct($full_file_path, $add_content = false)
 	{
 		//debugUtils::st();
 		$this->full_path = realpath($full_file_path);

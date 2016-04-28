@@ -15,6 +15,8 @@ class syndicationFeed extends BasesyndicationFeed implements IBaseObject
 	const CUSTOM_DATA_ENTRIES_ORDER_BY = 'entries_order_by';
 	const CUSTOM_DATA_ENFORCE_ORDER = 'enforce_order';
 	const CUSTOM_DATA_SERVE_PLAY_MANIFEST = 'serve_play_manifest';
+	const CUSTOM_DATA_USE_CATEGORY_ENTRIES = 'use_category_entries';
+	const CUSTOM_DATA_PLAYER_TYPE = 'player_type';
 
 	// copied from KalturaSyndicationFeedStatus
 	const SYNDICATION_DELETED = -1;
@@ -61,7 +63,10 @@ class syndicationFeed extends BasesyndicationFeed implements IBaseObject
 	public function preSave(PropelPDO $con = null)
 	{
 		if($this->isNew())
+		{
 			$this->setServePlayManifest(true);
+			$this->setPlayerType(PlayerType::HTML5Player);
+		}
 		
 		return parent::preSave($con);
 	}
@@ -166,5 +171,37 @@ class syndicationFeed extends BasesyndicationFeed implements IBaseObject
 	public function getServePlayManifest()
 	{
 		return $this->getFromCustomData(self::CUSTOM_DATA_SERVE_PLAY_MANIFEST, null, false);
+	}
+
+	/**
+	 * @param int $playerType
+	 */
+	public function setPlayerType($playerType)
+	{
+		$this->putInCustomData(self::CUSTOM_DATA_PLAYER_TYPE, $playerType);
+	}
+
+	/**
+	 * @return int
+	 */
+	public function getPlayerType()
+	{
+		return $this->getFromCustomData(self::CUSTOM_DATA_PLAYER_TYPE, null, PlayerType::KDP);
+	}
+
+	/**
+	 * @param boolean $v
+	 */
+	public function setUseCategoryEntries($v)
+	{
+		$this->putInCustomData(self::CUSTOM_DATA_USE_CATEGORY_ENTRIES, $v);
+	}
+	
+	/**
+	 * @return boolean
+	 */
+	public function getUseCategoryEntries()
+	{
+		return $this->getFromCustomData(self::CUSTOM_DATA_USE_CATEGORY_ENTRIES, null, false);
 	}
 }

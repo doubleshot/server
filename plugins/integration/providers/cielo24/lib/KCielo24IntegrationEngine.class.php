@@ -41,31 +41,29 @@ class KCielo24IntegrationEngine implements KIntegrationCloserEngine
 		$callBackUrl = $data->callbackNotificationUrl;
 		KalturaLog::debug('callback is - ' . $callBackUrl);	
 	
-		$this->clientHelper = Cielo24Plugin::getClientHelper($providerData->username, $providerData->password);
+		$this->clientHelper = Cielo24Plugin::getClientHelper($providerData->username, $providerData->password, $providerData->baseUrl);
 		
 		//setting a pre-defined name to prevent the flavor-url to contain chars that will break the curl url syntax
 		$nameOptions = new KalturaFlavorAssetUrlOptions();
 		$nameOptions->fileName = self::GET_URL_FILE_NAME;	
 		$flavorUrl = KBatchBase::$kClient->flavorAsset->getUrl($flavorAssetId, null, null, $nameOptions);
-	
-		$remoteJobId = $this->clientHelper->getRemoteFinishedJobId($entryId);
-		if (!$remoteJobId)
+
+		$languageName = $this->clientHelper->getLanguageConstantName($spokenLanguage);
+		$jobNameForSearch = $entryId . "_$languageName";
+
+		if($shouldReplaceRemoteMedia == true)
 		{
-			$uploadSuccess = $this->clientHelper->uploadMedia($flavorUrl, $entryId, $callBackUrl, $spokenLanguage, $priority, $fidelity);
-			if(!$uploadSuccess)
-				throw new Exception("upload failed");
+			$jobIds = $this->clientHelper->getRemoteJobIdByName($entryId, $jobNameForSearch . "*", true);
+			foreach($jobIds as $remoteJobId)
+				$this->clientHelper->deleteRemoteFile($remoteJobId);
 		}
-		elseif($shouldReplaceRemoteMedia == true)
-		{
-			$this->clientHelper->deleteRemoteFile($remoteJobId);
-			$uploadSuccess = $this->clientHelper->uploadMedia($flavorUrl, $entryId, $callBackUrl, $spokenLanguage, $priority, $fidelity);
-			if(!$uploadSuccess)
-				throw new Exception("upload failed");
-		}	
-		else
-		{
-			return true;
-		}
+
+		$jobId = $job->id;
+		$jobNameForUpload = $jobNameForSearch . "_$jobId";
+
+		$uploadSuccess = $this->clientHelper->uploadMedia($flavorUrl, $entryId, $callBackUrl, $spokenLanguage, $priority, $fidelity, $jobNameForUpload);
+		if(!$uploadSuccess)
+			throw new Exception("upload failed");
 	
 		return false;
 	}

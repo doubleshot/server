@@ -110,7 +110,7 @@ class kResponseProfileCacher implements kObjectChangedEventConsumer, kObjectDele
 		);
 		
 		$invalidationKey = self::addCacheVersion($invalidationKey);
-		KalturaLog::debug("Invalidating key [$invalidationKey] now [" . date('Y-m-d H:i:s', $value->{self::CACHE_VALUE_TIME}) . "]");
+		KalturaLog::debug("Invalidating key [$invalidationKey] now [" . date('Y-m-d H:i:s', $value[self::CACHE_VALUE_TIME]) . "]");
 		
 		$cacheStores = self::getInvalidationStores();
 		foreach ($cacheStores as $cacheStore)
@@ -274,7 +274,7 @@ class kResponseProfileCacher implements kObjectChangedEventConsumer, kObjectDele
 	protected static function getRelatedObjectKey(IRelatedObject $object, $responseProfileKey = null)
 	{
 		$partnerId = $object->getPartnerId();
-		$objectType = $object->getRelatedObjectType();
+		$objectType = get_class($object);
 		if($responseProfileKey)
 			return "{$partnerId}_{$objectType}_{$responseProfileKey}";
 			

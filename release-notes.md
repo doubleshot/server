@@ -1,3 +1,604 @@
+# Kajam 11.14.0 #
+
+## Mediaprep Tvinci distribution profile use dynamic tags ##
+
+ - Issue Type: Story
+ - Issue ID: PLAT-4617
+ 
+#### Configuration ####
+- None.
+ 
+#### Deployment scripts####
+	php /opt/kaltura/app/deployment/updates/scripts/2016_04_05_migrate_tvinci_distribution_tags_to_be_dynamic.php <partner_id> realrun
+ 
+#### Known Issues & Limitations ####
+ - None.
+
+
+# Kajam-11.13.0 #
+
+## Entries are never ready ##
+
+ - Issue Type: Bug
+ - Issue ID: SUP-7477
+
+#### Configuration ####
+- None.
+
+#### Deployment scripts####
+
+	php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2016_04_14_update_batch_service.php
+
+#### Known Issues & Limitations ####
+- None.
+
+## Sphinx Recording Schedule indexes ##
+- Issue Type: Feature Request
+- Issue ID: PLAT-5245
+
+#### Configuration ####
+- copy "index kaltura_schedule_event:kaltura_base" section from /opt/kaltura/app/configurations/sphinx/kaltura.conf.template
+to /opt/kaltura/app/configurations/sphinx/kaltura.conf
+modifiy path to appropriate directory.
+- restart sphinx service
+
+
+## Update comment_was_added_to_entry email notification ##
+
+ - Issue Type: Bug
+ - Issue ID: SUP-7709
+
+#### Configuration ####
+- None.
+
+#### Deployment scripts####
+
+	php /opt/kaltura/app/tests/standAloneClient/exec.php /opt/kaltura/app/deployment/updates/scripts/xml/updateCommentWasAddedToEntryEmailNotificationTemplateCode.xml
+
+#### Known Issues & Limitations ####
+- None.
+
+# Kajam-11.11.0 #
+
+## Automated Recording Schedule ##
+- Issue Type: Feature Request
+- Issue ID: PLAT-5245
+
+#### Configuration ####
+- None.
+
+#### Deployment Scripts ####
+	Update permissions: 
+		php deployment/updates/scripts/add_permissions/2016_03_28_add_schedule_permissions.php
+	
+	Install plugins:
+		php deployment/base/scripts/installPlugins.php
+	
+	Create new tables:
+		mysql -ukaltura -p -P3306 kaltura < deployment/updates/sql/2016_03_17_create_schedule_tables.sql
+
+#### Known Issues & Limitations ####
+- None.
+
+## fix baseEntryFilter->referenceIdEqueal,referenceIdIn ##
+- Issue Type: Bug
+- Issue ID: SUP-6162
+
+#### Configuration ####
+- None.
+
+#### Deployment Scripts ####
+- Repopulate sphinx entries
+
+#### Known Issues & Limitations ####
+- None.
+
+## Allow media server partner to list live entries ##
+- Issue Type: Task
+- Issue ID: PLAT-5268
+
+#### Configuration ####
+- None.
+
+#### Deployment Scripts ####
+	Update permissions: 
+		php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2016_03_22_media_server_live_stream_list.php
+	
+#### Known Issues & Limitations ####
+- None.
+
+## update permission CONTENT_INGEST_UPLOAD in service.document.documents ##
+- Issue Type: Task
+- Issue ID: PLAT-5199
+- 
+#### Configuration ####
+- None.
+
+#### Deployment Scripts ####
+	Update permissions: 
+		php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2013_03_24_update_content_docs_action.php
+	
+#### Known Issues & Limitations ####
+- None.
+
+## new entry--server_node relations model ##
+- Issue Type: Feature Request
+- Issue ID: PLAT-5018
+
+#### Configuration ####
+- None.
+
+#### Deployment Scripts ####
+	Update permissions: 
+		php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2016_02_10_entry_server_node_service.php
+	
+	Create new entry_server_node table:
+		mysql -h@db_host@ -u@db_user@ -p@db_pass@ -P3306 kaltura < /opt/kaltura/app/deployment/updates/sql/2016_02_10_create_entry_server_node_table.sql
+		
+	Import all live entries to the new table:
+		php /opt/kaltura/app/deployment/updates/scripts/2016_02_17_move_live_entry_to_entry_server_node.php
+
+#### Known Issues & Limitations ####
+- None.
+
+##Added thumb cue points generator operator on flavor params##
+- Issue Type: Feature Request
+- Issue ID: PLAT-4991
+
+#### Configuration ####
+	In order to use, requires adding a new "document.thumbAssets" operator to ppt2img flavor params.
+	Operators field should look like this:
+	[[{"id":"document.ppt2Img","extra":null,"command":null},{"id":"document.thumbAssets","extra":null,"command":null}]]
+
+	Requires adding a new worker to batch.ini:
+	- enabledWorkers.KAsyncConvertThumbAssetsGenerator = 1
+
+	- [KAsyncConvertThumbAssetsGenerator : KAsyncConvertWorker]
+	  id                                      = XXXX
+	  friendlyName                            = Convert Thumb Assets
+	  maximumExecutionTime                    = 36000
+	  maxJobsEachRun                          = 1
+	  filter.jobSubTypeIn                     = document.thumbAssets
+	  params.skipSourceValidation             = 1
+
+#### Deployment Scripts ####
+- php deployment/base/scripts/installPlugins.php
+
+#### Known Issues & Limitations ####
+- None.
+
+
+## Clear live entry old cue-points ##
+ - Issue Type: Bug
+ - Issue ID: PLAT-5161
+ 
+### Installation ###
+None.
+ 
+### Configuration ###
+		Added the following to batch.ini file:
+		- enabledWorkers.KAsyncClearCuePoints = 1
+		
+		- [KAsyncClearCuePoints : PeriodicWorker]
+		  id = LAST_USED_ID + 10
+		  friendlyName = Clear old cue points from live entry
+		  type = KAsyncClearCuePoints
+		  scriptPath = ../plugins/cue_points/base/batch/clearCuePonts/KAsyncClearCuePointsExe.php
+		  filter.KalturaCuePointFilter.cuePointTypeIn = "thumbCuePoint.Thumb,adCuePoint.Ad,codeCuePoint.Code"
+		  filter.KalturaCuePointFilter.orderBy = "+createdAt"
+		  filter.KalturaCuePointFilter.createdAtLessThanOrEqual = "-86400"
+		  filter.KalturaCuePointFilter.statusEqual = 1
+
+#### Known Issues & Limitations ####
+- None.
+
+#### Deployment scripts ####
+ - php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2016_02_29_batch_cue_point.php
+
+## Avoid API caching of anonymous users base on widget role unless found in blacklist ##
+ - Issue Type:bug\feature
+ - Issue ID : PLAT-5226
+### Installation ###
+None.
+### Configuration ###
+Need to add PLAYBACK_BASE_ROLE to section anonymous_roles_to_cache
+#### Known Issues & Limitations ####
+ - None
+#### Deployment scripts ####
+ - php deployment/updates/scripts/add_permissions/2016_02_11_add_qna_user_role_and_permissions.php
+
+# Kajam-11.10.0 #
+
+## Add Fairplay DRM Profile ##
+ - Issue Type: Feature
+ - Issue ID: PLAT-5117
+ 
+### Installation ###
+Need to run the following script deployment/base/scripts/installPlugins.php
+#### Configuration ####
+Make sure configurations/plugins.ini has a line for "Fairplay" plugin
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+None.
+
+
+## add roles field on widget and set permissions accordingly ##
+ - Issue Type: feature
+ - Issue ID: PLAT-3728
+### Installation ###
+None.
+### Configuration ###
+None.
+#### Known Issues & Limitations ####
+ - we currently do not support passing multiple roles on the Widget object (system wide)
+#### Deployment scripts ####
+ - php deployment/updates/scripts/add_permissions/2016_02_11_add_qna_user_role_and_permissions.php
+
+## Index cateogry inherited tree once per multirequest ##
+- Issue Type: Bug
+- Issue ID: PLAT-4968
+
+#### Configuration ####
+
+*base.ini*
+
+Add the following line to the the event_consumers[] list
+
+		event_consumers[] = kObjectReadyForIndexInheritedTreeHandler
+
+#### Deployment Scripts ####
+
+None.
+
+#### Known Issues & Limitations ####
+None.
+
+## Sometimes there is more than one batch scheduler running ##
+ - Issue Type: Bug
+ - Issue ID: PLAT-4714
+ 
+### Installation ###
+None.
+#### Configuration ####
+Copy the file '/opt/kaltura/app/batch/kaltura_batch.sh' to /etc/init.d/kaltura-batch and overwrite.
+Edit file '/opt/kaltura/app/configurations/monit/monit.avail/batch.rc'. Set the value 'with pidfile "/opt/kaltura/var/run/batch.pid"'
+Edit file '/opt/kaltura/app/configurations/batch/batch.ini' and set 'pidFileDir = /opt/kaltura/var/run/'
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+None.
+
+ 
+## Remove quiz permission ##
+
+- Issue Type: Bug
+
+#### Configuration ####
+
+- Remove the following lines from admin.ini:
+
+		moduls.quizCuePoint.enabled = true
+		moduls.quizCuePoint.permissionType = 3
+		moduls.quizCuePoint.label = Quiz - Cue Points
+		moduls.quizCuePoint.permissionName = QUIZ_PLUGIN_PERMISSION
+		moduls.quizCuePoint.basePermissionType = 3
+		moduls.quizCuePoint.basePermissionName = CUEPOINT_PLUGIN_PERMISSION
+		moduls.quizCuePoint.group = GROUP_ENABLE_DISABLE_FEATURES
+
+## new Http notifcation - Flavor Asset Status Changed ##
+
+- Issue Type: New Feature
+- Issue ID: PLAT-5097
+
+#### Configuration ####
+ 
+- None.
+
+#### Deployment Scripts ####
+
+		php /opt/kaltura/app/tests/standAloneClient/exec.php /opt/kaltura/app/tests/standAloneClient/flavorAssetChangedHttpNotificationTemplate.xml
+
+#### Known Issues & Limitations ####
+
+None.
+
+## Attachement Asset & Transcript Asset Event Notifications ##
+
+#### Configuration ####
+
+*plugins.ini*
+
+Enable the following plugins:
+
+		AttachmentAssetEventNotifications
+		TranscriptAssetEventNotifications
+
+
+# Kajam-11.8.0 #
+
+## Server returning all stream information when loading the player ##
+ - Issue Type: Bug
+ - Issue ID: SUP-6997
+ 
+### Installation ###
+None.
+### Configuration ###
+None. 
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+ - php deployment\updates\scripts\add_permissions\2014_01_22_live_stream_entry_broadcast_url.php
+ 
+
+## Sometimes there is more than one batch scheduler running ##
+ - Issue Type: Bug
+ - Issue ID: PLAT-4714
+ 
+### Installation ###
+None.
+### Configuration ###
+On windows machines create directory C:\var\run
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+
+## Default drm duration is not set##
+ - Issue Type: Bug
+ - Issue ID: SUP-7174
+#### Installation ####
+None.
+#### Configuration ####
+None.
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+ - mysql -h@db_host@ -u@db_user@ -p@db_pass@ -P3306 kaltura < /opt/kaltura/app/deployment/updates/sql/2016_02_03_add_default_duration_to_drm_policies.sql
+
+
+# Kajam-11.7.0 #
+
+## Add support for cue points in baseentry clone cloneOptions PLAT-4189##
+New enums were added to clone options
+#### Installation ####
+Need to run the following script deployment/base/scripts/installPlugins.php
+#### Configuration ####
+None.
+#### Known Issues & Limitations ####
+None.
+
+## Allow uploadToken resumeAt to upload chunk to any position ##
+The uploadToken upload service supported the resumeAt parameter however it allowed the resumeAt to be a position which is smaller or equal to the already uploaded size. Each uploaded chunk was added at the resumeAt position. Now the code allows uploading a chunk to whatever resumeAt position you would like however it appends the chunks one by one each time using only a chunk which starts at a position smaller or equal than the current size and which will end (after the appending) after the end of the current file - in other words only a chunk which will start before or at the end of the current file and will increase the file size is appended. The code handles race conditions as different servers may try to append the chunks.
+
+#### Installation ####
+None.
+#### Configuration ####
+None.
+#### Known Issues & Limitations ####
+None.
+
+# Kajam-11.6.0 #
+## Expose liveStatus in the API for use in the WebCasting app + add BROADCASTING state to LiveEntryStatus##
+ - Issue Type: New Feature
+ - Issue ID: WEBC-629
+#### Installation ####
+ - deploy new jars to Wowza - new jars can be found in the ticket https://kaltura.atlassian.net/browse/WEBC-629
+#### Configuration ####
+ - Validate facebook.ini exists in the configuration directory
+ - Added FacebookDistribution to plugins.ini
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+ - php /opt/kaltura/app/deployment/base/scripts/installPlugins.php
+
+## Usage dashboard ##
+
+ - Issue Type: New Feature
+ - Issue ID: PLAT-3962 
+
+#### Installation ####
+
+- Download latest Usage Dashboard package from https://github.com/kaltura/usage-dashboard/releases/
+- Extract the zip to `/opt/kaltura/apps/usage-dashboard/`
+- If the app version is v1.0.0, make sure that `/opt/kaltura/apps/usage-dashboard/v1.0.0/index.html` exists
+
+#### Configuration ####
+
+- Add new permission to admin.ini:
+
+		moduls.enableUsageDashboard.enabled = true
+		moduls.enableUsageDashboard.permissionType = 2
+		moduls.enableUsageDashboard.label = Enable Usage Dashboard
+		moduls.enableUsageDashboard.permissionName = FEATURE_ENABLE_USAGE_DASHBOARD
+		moduls.enableUsageDashboard.basePermissionType =
+		moduls.enableUsageDashboard.basePermissionName =
+		moduls.enableUsageDashboard.group = GROUP_ENABLE_DISABLE_FEATURES
+
+# Kajam-11.5.0 #
+#### Installation ####
+None
+#### Configuration ####
+None
+## pass AMF data on shared storage instead of in job data ##
+ - Issue Type: New Feature
+ - Issue ID: WEBC-631
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+None.
+
+# Kajam-11.4.0 #
+
+## run mediainfo from convertLiveSegment/concat jobs ##
+ - Issue Type: New Feature
+ - Issue ID: WEBC-631
+
+#### Installation ####
+None.
+
+#### Configuration ####
+	- in batch.ini, add:
+		KAsyncConvertLiveSegment: params.mediaInfoCmd = @BIN_DIR@/mediainfo
+		KAsyncConcat: params.mediaInfoCmd = @BIN_DIR@/mediainfo
+#### Known Issues & Limitations ####
+None.
+#### Deployment scripts ####
+None.
+
+## Ad stitching - report ##
+
+ - Issue Type: New Feature
+ - Issue ID: PLAT-2502 
+
+#### Installation ####
+
+make sure the following packages are installed:
+	- mutt
+	- enscript
+	- ps2pdf
+	 
+#### Configuration ####
+
+	- Add new module to the admin-console in admin.ini:
+		moduls.enablePlayServerReport.enabled = true
+		moduls.enablePlayServerReport.permissionType = 2
+		moduls.enablePlayServerReport.label = Enable Play-Server Report
+		moduls.enablePlayServerReport.permissionName = PLAY_SERVER_REPORT
+		moduls.enablePlayServerReport.basePermissionType = 2
+		moduls.enablePlayServerReport.basePermissionName = FEATURE_PLAY_SERVER
+		moduls.enablePlayServerReport.group = GROUP_ENABLE_DISABLE_FEATURES
+
+#### Known Issues & Limitations ####
+
+None.
+
+# Kajam-11.2.0 #
+- task: WEBC-631
+#### Configuration ####
+ - configure ffprobe on API / BATCH servers - used to parse AMF data from mp4 files generated by wowza.
+to do so: add bin_path_ffprobeKAMFMediaInfoParser to local.ini to be a symbolic link to /opt/kaltura/bin/ffmpeg-2.7.2-bin/ffprobe.sh
+the symbolic link should be named ffprobeKAMFMediaInfoParser
+
+## Update permissions ##
+ - Issue type: Bug
+ - KMS-3890
+
+### Deployment scripts ##
+
+ - php deployment\updates\scripts\add_permissions\2015_09_17_update_quiz_permissions.php
+
+#### Configuration ####
+
+ - None
+
+# Kajam-11.1.0 #
+
+## eCDN - create server_node machine hierarchy ##
+
+ - Issue Type: New Feature
+ - Issue ID: PLAT-3634 
+
+### Deployment scripts (note the order of the scripts is important run them as listed ) ###
+	 - php /opt/kaltura/app/deployment/base/scripts/installPlugins.php
+
+	 - php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2015_09_08_server_node_service.php
+	 
+	 - php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2015_09_16_media_server_server_node.php
+
+	 - mysql -h@db_host@ -u@db_user@ -p@db_pass@ -P3306 kaltura < /opt/kaltura/app/deployment/updates/sql/2015_09_08_alter_edge_server_table.sql
+
+	 - mysql -h@db_host@ -u@db_user@ -p@db_pass@ -P3306 kaltura < /opt/kaltura/app/deployment/updates/sql/2015_09_08_rename_edge_server_table.sql
+	 
+	 - php /opt/kaltura/app/deployment/updates/scripts/2015_09_21_migrateMediaServerTableToServerNodeTable.php
+	 
+	 - php /opt/kaltura/app/deployment/updates/scripts/2015_10_29_migrate_edge_server_permissions.php
+	 
+#### Configuration ####
+
+	- Add new module to the admin-console in admin.ini:
+		moduls.ServerNode.enabled = true
+		moduls.ServerNode.permissionType = 2
+		moduls.ServerNode.label = "Enable Server-Node"
+		moduls.ServerNode.permissionName = FEATURE_SERVER_NODE
+		moduls.ServerNode.basePermissionType =
+		moduls.ServerNode.basePermissionName =
+		moduls.ServerNode.group = GROUP_ENABLE_DISABLE_FEATURES
+
+	- remove the following from admin.ini:
+		moduls.EdgeServer.enabled = true
+		moduls.EdgeServer.permissionType = 2
+		moduls.EdgeServer.label = "Edge server usage"
+		moduls.EdgeServer.permissionName = FEATURE_EDGE_SERVER
+		moduls.EdgeServer.basePermissionType =
+		moduls.EdgeServer.basePermissionName =
+		moduls.EdgeServer.group = GROUP_ENABLE_DISABLE_FEATURES
+
+	- Add the following to media_servers.ini:
+		port-hls = SAME_AS_THE_PORT_VALUE
+		port-https-hls = SAME_AS_THE_HTTPS_VALUE
+		domain-hls = SAME_AS_THE_DOMAIN_VALUE
+
+	- Edited Wowza Server.xml:
+		- property: "KalturaServerManagers"
+		  Remove the value "com.kaltura.media.server.wowza.StatusManager"
+
+#### Known Issues & Limitations ####
+
+None.
+
+## Add new action 'getUrl' and update the 'servePdf' Action
+ - Issue Type: New Feature
+ - Issue ID: PLAT-3975
+
+#### Configuration ####
+
+- Run the following permission script:
+	php deployment\updates\scripts\add_permissions\2015_09_17_update_quiz_permissions.php
+
+#### Known Issues & Limitations ####
+
+None.
+
+
+# Kajam-11.0.0 #
+
+## New scheduled task profile ##
+
+ - Issue Type: New Feature
+ - Issue ID: PS-2330  
+  
+### Deployment scripts ###
+
+	php /opt/kaltura/app/tests/standAloneClient/exec.php /opt/kaltura/app/tests/standAloneClient/scheduledTaskProfiles/30DayDeleteAfterScheduleEnd.xml  
+	Input: 
+	- partner ID - 1956791
+	- Max total count allowed per execution: 500
+	- Host name: www.kaltura.com
+	- Partner email address: admin console admin user
+	- Partner password: user's password
+	- Partner ID: -2
+	
+## Like->list API call ##
+
+- Issue Type: New Feature
+- Issue ID: PLAT-3920
+
+#### Configuration ####
+ 
+None.
+
+#### Deployment Scripts ####
+	php /opt/kaltura/app/deployment/updates/scripts/add_permissions/2015_10_25_add_like_list_permission.php
+	php /opt/kaltura/app/alpha/scripts/utils/permissions/addPermissionToRole.php 0 Basic\ User\ Session\ Role LIKE_LIST_USER realrun (please use copy-paste carefully here)
+
+	(only for on-prem/CE environments)
+	mysql -h@db_host@ -u@db_user@ -p@db_pass@ -P3306 kaltura < deployment/updates/sql/2015_10_25_alter_kvote_table_puser_id_table.sql
+	php deployment/updates/scripts/2015_10_25_populate_like_table_puser_id_field.php
+	
+#### Known Issues & Limitations ####
+
+None.
+
 # Jupiter-10.21.0 #
 
 ## Cielo24 plugin ##

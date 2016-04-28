@@ -140,11 +140,17 @@ class KSecureEntryHelper
 	public function validateForPlay($performApiAccessCheck = true)
 	{
 	    if ($this->contexts != array(ContextType::THUMBNAIL))
-	    {
-		    $this->validateModeration();
-			$this->validateScheduling();
-	    }
-		$this->validateAccessControl($performApiAccessCheck);
+        {
+            if ( ! ($this->ks &&
+                   ($this->isKsAdmin() ||
+                    $this->ks->verifyPrivileges(ks::PRIVILEGE_VIEW, ks::PRIVILEGE_WILDCARD) ||
+                    $this->ks->verifyPrivileges(ks::PRIVILEGE_VIEW, $this->entry->getId()) ))){
+                $this->validateModeration();
+                $this->validateScheduling();
+            }
+        }
+
+        $this->validateAccessControl($performApiAccessCheck);
 	}
 	
 	public function validateForDownload()
@@ -231,6 +237,22 @@ class KSecureEntryHelper
 	public function shouldBlock()
 	{
 		return $this->getActionList(RuleActionType::BLOCK);		
+	}
+	
+	public function shouldServeFromServerNode()
+	{
+		$actionsList = $this->getActionList(RuleActionType::SERVE_FROM_REMOTE_SERVER);
+		if(!$actionsList)
+			return null;
+		
+		/* @var $action kAccessControlServeRemoteEdgeServerAction */
+		$action = reset($actionsList);
+		$activeServerNodes =  $action->getRegiteredNodeServers();
+		
+		if(!count($activeServerNodes))
+			return null;
+		
+		return $activeServerNodes[0];
 	}
 	
 	protected function isFlavorParamsAllowed($flavorParamsId)

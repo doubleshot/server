@@ -124,7 +124,7 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 		libxml_clear_errors();
 		if(!$xdoc->loadXML($this->xslTransformedContent)){
 			$errorMessage = kXml::getLibXmlErrorDescription($this->xslTransformedContent);
-			throw new KalturaBatchException("Could not load xml [{$this->job->id}], $errorMessage", KalturaBatchJobAppErrors::BULK_VALIDATION_FAILED);
+			throw new KalturaBatchException("Could not load xml [{$this->job->id}], $errorMessage", KalturaBatchJobAppErrors::BULK_VALIDATION_FAILED, null);
 		}
 		//Validate the XML file against the schema
 		libxml_clear_errors();
@@ -860,7 +860,7 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 			}
 		}
 
-		$createdEntry = $this->sendItemAddData($entry, $resource, $noParamsFlavorAssets, $noParamsFlavorResources, $noParamsThumbAssets, $noParamsThumbResources);
+		$createdEntry = $this->sendItemAddData($entry, $resource, $noParamsFlavorAssets, $noParamsFlavorResources, $noParamsThumbAssets, $noParamsThumbResources, $flavorAssets);
 			
 		if (isset ($item->categories))
 	        $createdEntryBulkUploadResult = $this->createCategoryAssociations($createdEntry->id, $this->implodeChildElements($item->categories), $createdEntryBulkUploadResult);
@@ -902,7 +902,7 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 	 * @param array $noParamsThumbResources
 	 * @return $requestResults - the multi request result
 	 */
-	protected function sendItemAddData(KalturaBaseEntry $entry ,KalturaResource $resource = null, array $noParamsFlavorAssets, array $noParamsFlavorResources, array $noParamsThumbAssets, array $noParamsThumbResources)
+	protected function sendItemAddData(KalturaBaseEntry $entry ,KalturaResource $resource = null, array $noParamsFlavorAssets, array $noParamsFlavorResources, array $noParamsThumbAssets, array $noParamsThumbResources, array $flavorAssets)
 	{
 		KBatchBase::impersonate($this->currentPartnerId);;
 		KBatchBase::$kClient->startMultiRequest();
@@ -911,6 +911,12 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 		
 		KBatchBase::$kClient->baseEntry->add($entry); //Adds the entry
 		$newEntryId = KBatchBase::$kClient->getMultiRequestResult()->id;							// TODO: use the return value of add instead of getMultiRequestResult
+		
+		foreach ($flavorAssets as $currFlavorAsset)
+		{
+			KBatchBase::$kClient->flavorAsset->add($newEntryId, $currFlavorAsset);
+		}
+		
 		
 		if($resource)
 			KBatchBase::$kClient->baseEntry->addContent($newEntryId, $resource); // adds the entry resources
@@ -1097,7 +1103,7 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 				KBatchBase::$kClient->thumbAsset->setContent($existingthumbAssets[$thumbParamsId], $thumbAssetsResource);
 			}
 			if (strpos($thumbAssetsResource->tags, self::DEFAULT_THUMB_TAG) !== false)
-				KBatchBase::$kClient->thumbAsset->setAsDefault($thumAsset->id);
+				KBatchBase::$kClient->thumbAsset->setAsDefault($thumbsAsset->id);
 		}
 		
 		$requestResults = KBatchBase::$kClient->doMultiRequest();
@@ -1847,8 +1853,6 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 			$entry->tags = $this->implodeChildElements($item->tags);
 //		if(isset($item->categories))
 //			$entry->categories = $this->implodeChildElements($item->categories);
-		if(isset($item->userId))
-			$entry->userId = (string)$item->userId;
 		if(isset($item->licenseType))
 			$entry->licenseType = (string)$item->licenseType;
 		if(isset($item->partnerData))
@@ -1865,6 +1869,23 @@ class BulkUploadEngineXml extends KBulkUploadEngine
 			$entry->conversionProfileId = $this->getConversionProfileId($item);
 		if(($entry instanceof KalturaPlayableEntry) && isset($item->msDuration))
 			$entry->msDuration = (int)$item->msDuration;
+		if(isset($item->templateEntryId))
+			$entry->templateEntryId = $item->templateEntryId;
+		if(isset($item->templateEntry))
+		{
+			$templateEntryId = $this->getEntryIdFromReference("{$item->templateEntry}");
+			if($templateEntryId)
+				$entry->templateEntryId = $templateEntryId;
+			else 
+				throw new KalturaBulkUploadXmlException("Template entry id with reference id [$item->templateEntry] not found ", KalturaBatchJobAppErrors::BULK_ITEM_VALIDATION_FAILED);
+		}
+
+		if($entry->templateEntryId)
+			$entry->userId = null;
+		
+		if(isset($item->userId))
+			$entry->userId = (string)$item->userId;
+		
 		if(isset($item->parentReferenceId))
 		{
 			$parentEntryId = $this->getEntryIdFromReference("{$item->parentReferenceId}");

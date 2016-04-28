@@ -82,7 +82,7 @@ class KalturaTypeReflector
 	 * @param string $type
 	 * @return KalturaTypeReflector
 	 */
-	public function KalturaTypeReflector($type)
+	public function __construct($type)
 	{
 		if (!class_exists($type))
 			throw new KalturaReflectionException("Type \"".$type."\" not found");
@@ -728,16 +728,28 @@ class KalturaTypeReflector
 	
 	public function requiresReadPermission()
 	{
+		if ($this->requiresUsagePermission())
+		{
+			return true;
+		}
 		return in_array(KalturaPropertyInfo::READ_PERMISSION_NAME, $this->_permissions);
 	}
 	
 	public function requiresUpdatePermission()
 	{
+		if ($this->requiresUsagePermission())
+		{
+			return true;
+		}
 		return in_array(KalturaPropertyInfo::UPDATE_PERMISSION_NAME, $this->_permissions);
 	}
 	
 	public function requiresInsertPermission()
 	{
+		if ($this->requiresUsagePermission())
+		{
+			return true;
+		}
 		return in_array(KalturaPropertyInfo::INSERT_PERMISSION_NAME, $this->_permissions);
 	}
 	

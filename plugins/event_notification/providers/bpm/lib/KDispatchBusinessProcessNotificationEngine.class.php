@@ -11,7 +11,7 @@ class KDispatchBusinessProcessNotificationEngine extends KDispatchEventNotificat
 	 */
 	public function getBusinessProcessProvider(KalturaBusinessProcessServer $server)
 	{
-		$provider = kBusinessProcessProvider::get($data->server);
+		$provider = kBusinessProcessProvider::get($server);
 		$provider->enableDebug(true);
 		
 		return $provider;
@@ -74,7 +74,7 @@ class KDispatchBusinessProcessNotificationEngine extends KDispatchEventNotificat
 	 * @param KalturaBusinessProcessStartNotificationTemplate $template
 	 * @param KalturaBusinessProcessNotificationDispatchJobData $data
 	 */
-	public function abortCase(KalturaBusinessProcessStartNotificationTemplate $template, KalturaBusinessProcessNotificationDispatchJobData &$data)
+	public function abortCase(KalturaBusinessProcessAbortNotificationTemplate $template, KalturaBusinessProcessNotificationDispatchJobData &$data)
 	{
 		$provider = $this->getBusinessProcessProvider($data->server);
 		KalturaLog::info("Aborting business-process [{$template->processId}] case [{$data->caseId}]");

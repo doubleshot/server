@@ -29,25 +29,21 @@ class KalturaLiveStreamEntry extends KalturaLiveEntry
 	public $bitrates;
 	
 	/**
-	 * @requiresPermission all
 	 * @var string
 	 */
 	public $primaryBroadcastingUrl;
 	
 	/**
-	 * @requiresPermission all
 	 * @var string
 	 */
 	public $secondaryBroadcastingUrl;
 	
 	/**
-	 * @requiresPermission all
 	 * @var string
 	 */
 	public $primaryRtspBroadcastingUrl;
 	
 	/**
-	 * @requiresPermission all
 	 * @var string
 	 */
 	public $secondaryRtspBroadcastingUrl;
@@ -109,7 +105,13 @@ class KalturaLiveStreamEntry extends KalturaLiveEntry
 	 */
 	public $streamUsername;
 	
-	
+	/**
+	 * The Streams primary server node id 
+	 *
+	 * @var int
+	 * @readonly
+	 */
+	public $primaryServerNodeId;
 	
 	private static $map_between_objects = array
 	(
@@ -127,6 +129,7 @@ class KalturaLiveStreamEntry extends KalturaLiveEntry
 		"streamPassword",
 		"streamUsername",
 		"bitrates" => "streamBitrates",
+		"primaryServerNodeId",
 	);
 
 	public function __construct()
@@ -151,7 +154,19 @@ class KalturaLiveStreamEntry extends KalturaLiveEntry
 	{
 		if(!($dbObject instanceof LiveStreamEntry))
 			return;
-			
+
+		/**
+		 * @var LiveStreamEntry @dbObject
+		 */
+		$ksObject = kCurrentContext::$ks_object;
+		if ( !kCurrentContext::$is_admin_session && !(kCurrentContext::getCurrentKsKuserId() == $dbObject->getKuserId())
+				&& (!$ksObject || !$ksObject->verifyPrivileges(ks::PRIVILEGE_EDIT, $this->id)) )
+		{
+			$this->primaryBroadcastingUrl = null;
+			$this->secondaryBroadcastingUrl = null;
+			$this->primaryRtspBroadcastingUrl = null;
+			$this->secondaryRtspBroadcastingUrl = null;
+		}
 		parent::doFromObject($dbObject, $responseProfile);
 	}
 	

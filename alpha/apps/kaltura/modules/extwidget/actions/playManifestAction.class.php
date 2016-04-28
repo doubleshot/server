@@ -130,6 +130,21 @@ class playManifestAction extends kalturaAction
 		return $calcToken == $urlToken;
 	}
 
+	protected function addAudioOnlyFlavors()
+	{
+		$extraFlavors = assetPeer::retrieveReadyByEntryIdAndTag($this->entryId, "audio_only");
+		foreach ($extraFlavors as $extraFlavor)
+		{
+			/**
+			 * @var asset $extraFlavor
+			 */
+			if (!in_array($extraFlavor->getId(), $this->flavorIds))
+			{
+				$this->flavorIds[] = $extraFlavor->getId();
+			}
+		}
+	}
+
 	/**
 	 * @param array $params
 	 * @return array
@@ -267,8 +282,13 @@ class playManifestAction extends kalturaAction
 			$this->flavorIds = array($flavorId);
 						
 		if (!is_null($this->flavorIds))
+		{
+			if ($this->deliveryAttributes->getFormat() == PlaybackProtocol::APPLE_HTTP)
+			{
+				$this->addAudioOnlyFlavors();
+			}
 			return;
-
+		}
 		$flavorParamIds = $this->getRequestParameter ( "flavorParamIds", null );
 		if (!is_null($flavorParamIds))
 			$this->flavorParamsIds = explode(',', $flavorParamIds);
@@ -285,8 +305,13 @@ class playManifestAction extends kalturaAction
 		
 		if(is_null($this->flavorParamsIds))
 			return;
-			
+
 		$this->flavorIds = assetPeer::retrieveReadyFlavorsIdsByEntryId($this->entryId, $this->flavorParamsIds);
+		if (!is_null($this->flavorIds) && $this->deliveryAttributes->getFormat() == PlaybackProtocol::APPLE_HTTP)
+		{
+			$this->addAudioOnlyFlavors();
+		}
+
 	}
 	
 	protected function initFlavorParamsIds()
@@ -335,13 +360,23 @@ class playManifestAction extends kalturaAction
 	
 	private function enforceAudioVideoEntry()
 	{
-		if($this->entry->getType() != entryType::MEDIA_CLIP)
+		switch ($this->entry->getType())
+		{
+		case entryType::MEDIA_CLIP:
+			if(!in_array($this->entry->getMediaType(), array(
+					entry::ENTRY_MEDIA_TYPE_VIDEO,
+					entry::ENTRY_MEDIA_TYPE_AUDIO)))
+				KExternalErrors::dieError(KExternalErrors::INVALID_ENTRY_TYPE);
+			break;
+			
+		case entryType::PLAYLIST: 
+			if ($this->entry->getMediaType() != entry::ENTRY_MEDIA_TYPE_TEXT)
+				KExternalErrors::dieError(KExternalErrors::INVALID_ENTRY_TYPE);
+			break;
+				
+		default:
 			KExternalErrors::dieError(KExternalErrors::INVALID_ENTRY_TYPE);
-
-		if(!in_array($this->entry->getMediaType(), array(
-			entry::ENTRY_MEDIA_TYPE_VIDEO,
-			entry::ENTRY_MEDIA_TYPE_AUDIO)))
-			KExternalErrors::dieError(KExternalErrors::INVALID_ENTRY_TYPE);
+		}
 	}
 	
 	protected function shouldUseLocalFlavors($hasLocalFlavors, $hasRemoteFlavors)
@@ -492,6 +527,38 @@ class playManifestAction extends kalturaAction
 			return false;			// live stream entries don't have flavors
 		
 		return true;
+	}
+
+	protected function initPlaylistFlavorAssetArray()
+	{
+		list($entryIds, $durations, $mediaEntry) =
+			myPlaylistUtils::executeStitchedPlaylist($this->entry);
+		if (!$mediaEntry)
+		{
+			KExternalErrors::dieError(KExternalErrors::ENTRY_NOT_FOUND);
+		}
+		
+		$this->duration = array_sum($durations) / 1000;
+
+		$flavorAssets = array();
+		
+		if ($this->flavorIds)
+		{
+			$flavorAssets = assetPeer::retrieveReadyByEntryId($mediaEntry->getId(), $this->flavorIds);
+			$flavorAssets = $this->removeNotAllowedFlavors($flavorAssets);
+			$flavorAssets = $this->removeMaxBitrateFlavors($flavorAssets);
+		}
+		
+		if (!$flavorAssets)
+		{
+			$flavorAssets = assetPeer::retrieveReadyFlavorsByEntryId($mediaEntry->getId());
+			$flavorAssets = $this->removeNotAllowedFlavors($flavorAssets);
+			$flavorAssets = $this->removeMaxBitrateFlavors($flavorAssets);
+			$flavorAssets = $this->deliveryAttributes->filterFlavorsByTags($flavorAssets);
+		}
+			
+		$this->deliveryAttributes->setStorageId(null);
+		$this->deliveryAttributes->setFlavorAssets($flavorAssets);
 	}
 	
 	protected function initFlavorAssetArray()
@@ -712,9 +779,17 @@ class playManifestAction extends kalturaAction
 		if($this->entry->getPartner()->getForceCdnHost())
 			$this->cdnHost = myPartnerUtils::getCdnHost($this->entry->getPartnerId(), $this->protocol);
 		
-		$this->initFlavorAssetArray();
+		switch($this->entry->getType())
+		{
+		case entryType::PLAYLIST:
+			$this->initPlaylistFlavorAssetArray();
+			break;
 		
-		$this->initEntryDuration();
+		case entryType::MEDIA_CLIP:
+			$this->initFlavorAssetArray();
+			$this->initEntryDuration();
+			break;
+		}
 		
 		if ($this->duration && $this->duration < 10 && $this->deliveryAttributes->getFormat() == PlaybackProtocol::AKAMAI_HDS)
 		{
@@ -872,8 +947,9 @@ class playManifestAction extends kalturaAction
 			return null;
 		}
 		
-		$this->deliveryProfile->setDynamicAttributes($this->deliveryAttributes);	
-		return $this->deliveryProfile->serve($liveStreamConfig);
+		$this->deliveryProfile->setDynamicAttributes($this->deliveryAttributes);
+		$this->deliveryProfile->setLiveStreamConfig($liveStreamConfig);	
+		return $this->deliveryProfile->serve();
 	}
 	
 	/* (non-PHPdoc)
@@ -1007,6 +1083,7 @@ class playManifestAction extends kalturaAction
 		
 		switch($this->entry->getType())
 		{
+			case entryType::PLAYLIST:
 			case entryType::MEDIA_CLIP:
 				// VOD
 				$renderer = $this->serveVodEntry();

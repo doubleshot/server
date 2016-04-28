@@ -908,7 +908,15 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 		$entryDistribution->setErrorType(null);
 		$entryDistribution->setErrorNumber(null);
 		$entryDistribution->setErrorDescription(null);
-		$entryDistribution->setStatus(EntryDistributionStatus::REMOVED);
+		if ($data->getKeepDistributionItem())
+		{
+			$entryDistribution->setRemoteId(null);
+			$entryDistribution->setStatus(EntryDistributionStatus::QUEUED);
+		}
+		else 
+		{
+			$entryDistribution->setStatus(EntryDistributionStatus::REMOVED);
+		}
 		$entryDistribution->setDirtyStatus(null);
 		$entryDistribution->save();
 		
@@ -1261,13 +1269,14 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 						$oldElements = $xPath->query($updateRequiredMetadataXPath);
 					}
 					
-					if(is_null($newElements) && is_null($oldElements))
+					if((!$newElements || !$newElements->length) && (!$oldElements && !$oldElements->length))
 						continue;
 						
-					if(is_null($newElements) XOR is_null($oldElements))
+					if((!$newElements || !$newElements->length) XOR (!$oldElements || !$oldElements->length))
 					{
 						$updateRequired = true;
 					}
+					
 					elseif($newElements->length == $oldElements->length)
 					{
 						for($index = 0; $index < $newElements->length; $index++)
@@ -1462,7 +1471,7 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 				
 					if($entryDistribution->getDirtyStatus() == EntryDistributionDirtyStatus::UPDATE_REQUIRED || $entryDistribution->getDirtyStatus() == EntryDistributionDirtyStatus::SUBMIT_REQUIRED)
 					{
-						KalturaLog::log("Entry distribution [" . $entryDistribution->getId() . "] already flaged for updating");
+						KalturaLog::log("Entry distribution [" . $entryDistribution->getId() . "] already flagged for updating");
 //						continue;
 					}
 					
@@ -1498,6 +1507,33 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 					}
 				
 					self::assignAssetsAndValidateForSubmission($entryDistribution, $entry, $distributionProfile, DistributionAction::SUBMIT);
+					//handle case where one of the validation errors is cause for deleting the distributed data
+					$validationErrors = $entryDistribution->getValidationErrors();
+					
+					if ($entryDistribution->getStatus() == EntryDistributionStatus::READY)
+					{
+						foreach ($validationErrors as $validationError)
+						{
+							/* @var $validationError kDistributionValidationError */
+							if ($validationError->getRequiresDelete ())
+							{
+								KalturaLog::log("Entry distribution [" . $entryDistribution->getId() . "] has a validation error that should trigger its deletion");
+								if ($distributionProfile->getDeleteEnabled() == DistributionProfileActionStatus::AUTOMATIC)
+								{
+									KalturaLog::info("Entry distribution item should not be deleted, but moved back to QUEUED status");
+									self::submitDeleteEntryDistribution($entryDistribution, $distributionProfile, true);
+									continue;
+								}
+								else
+								{
+									KalturaLog::log("Entry distribution [" . $entryDistribution->getId() . "] should not be deleted automatically");
+									$entryDistribution->setDirtyStatus(EntryDistributionDirtyStatus::DELETE_REQUIRED);
+									$entryDistribution->save();
+								}
+							}	
+						
+						}
+					}
 					
 					if(!$updateRequired)
 					{
@@ -1567,6 +1603,12 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 		if(!ContentDistributionPlugin::isAllowedPartner($entry->getPartnerId()))
 			return true;
 			
+		$validStatuses = array(
+			EntryDistributionStatus::ERROR_DELETING,
+			EntryDistributionStatus::ERROR_UPDATING,
+			EntryDistributionStatus::READY,
+		);
+		
 		$entryDistributions = EntryDistributionPeer::retrieveByEntryId($entry->getId());
 		foreach($entryDistributions as $entryDistribution)
 		{
@@ -1581,6 +1623,14 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 				KalturaLog::log("Entry distribution [" . $entryDistribution->getId() . "] already flagged for deletion");
 				continue;
 			}
+			
+			if (!in_array ($entryDistribution->getStatus(), $validStatuses))
+			{
+				KalturaLog::info("Entry distribution object [" .  $entryDistribution->getId() . "] to be deleted.");
+				$entryDistribution->setStatus(EntryDistributionStatus::DELETED);
+				$entryDistribution->setDirtyStatus(EntryDistributionDirtyStatus::NONE);
+				$entryDistribution->save ();
+			}
 				
 			$distributionProfileId = $entryDistribution->getDistributionProfileId();
 			$distributionProfile = DistributionProfilePeer::retrieveByPK($distributionProfileId);
@@ -1591,6 +1641,7 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 			}
 				
 			self::submitDeleteEntryDistribution($entryDistribution, $distributionProfile);
+			
 		}
 		
 		return true;
@@ -1747,7 +1798,6 @@ class kContentDistributionFlowManager extends kContentDistributionManager implem
 					continue;
 				}
 				$validationErrors = $entryDistribution->getValidationErrors();
-				
 				if(!count($validationErrors) && $distributionProfile->getUpdateEnabled() == DistributionProfileActionStatus::AUTOMATIC)
 				{
 					self::submitUpdateEntryDistribution($entryDistribution, $distributionProfile);

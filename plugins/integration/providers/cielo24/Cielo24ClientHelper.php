@@ -8,10 +8,17 @@ class Cielo24ClientHelper
 	private $baseEndpointUrl = null;
 	private $apiCredentialsStr = null;
 	
-	public function __construct($username, $password)
+	public function __construct($username, $password, $baseUrl = null)
 	{
 		$cielo24ParamsMap = kConf::get('cielo24','integration');
-		$this->baseEndpointUrl = $cielo24ParamsMap['base_url'];
+		if(!is_null($baseUrl))
+		{
+			$this->baseEndpointUrl = $baseUrl;
+		}
+		else
+		{
+			$this->baseEndpointUrl = $cielo24ParamsMap['base_url'];
+		}
 		$this->apiCredentialsStr = "v=" . $cielo24ParamsMap['version'];
 		
 		$loginParams = array("username" => $username, "password" => $password);	
@@ -22,33 +29,45 @@ class Cielo24ClientHelper
 		
 		$this->supportedLanguages = $cielo24ParamsMap['languages'];
 	}
-	
-	
-	public function getRemoteFinishedJobId($entryId)
+
+	public function getRemoteJobIdByName($entryId, $jobName, $multiple = false)
 	{
-		$listParams = array("ExternalID" => $entryId, "JobStatus" => "Complete");
+		$listParams = array("ExternalID" => $entryId, "JobName" => $jobName);
+		return $this->getRemoteJobId($listParams, $multiple);
+	}
+
+	public function getRemoteJobId($listParams, $multiple = false)
+	{
 		$remoteJobsListAPIUrl = $this->createAPIUrl("job/list", $listParams);
 		$exitingJobsResult = $this->sendAPICall($remoteJobsListAPIUrl);
 		if($exitingJobsResult && isset($exitingJobsResult->ActiveJobs) && count($exitingJobsResult->ActiveJobs))
 		{
-			return $exitingJobsResult->ActiveJobs[0]->JobId;
+			if(!$multiple)
+				return $exitingJobsResult->ActiveJobs[0]->JobId;
+			else
+			{
+				$jobIds = array();
+				foreach($exitingJobsResult->ActiveJobs as $activeJob)
+					$jobIds[] = $activeJob->JobId;
+				return $jobIds;		
+			}
 		}
 		return false;
 	}
 	
-	public function uploadMedia($flavorUrl, $entryId, $callBackUrl, $spokenLanguage, $priority, $fidelity)
+	public function uploadMedia($flavorUrl, $entryId, $callBackUrl, $spokenLanguage, $priority, $fidelity, $jobName)
 	{
 		$languageExternalServiceParam = $this->supportedLanguages[$spokenLanguage];
 		
 		//adding a job
-		$jobCreationParams = array("language" => $languageExternalServiceParam,"external_id" => $entryId);
+		$jobCreationParams = array("language" => $languageExternalServiceParam,"external_id" => $entryId, "job_name" => $jobName);
 		$createJobAPIUrl = $this->createAPIUrl("job/new", $jobCreationParams);
 		$jobAdditionResult = $this->sendAPICall($createJobAPIUrl);
 		if($jobAdditionResult && isset($jobAdditionResult->JobId))
 			$jobId = $jobAdditionResult->JobId;
 		else
 			return false;
-		
+
 		// attaching media to the job
 		$addMediaParams = array("job_id" => $jobId, "media_url" => $flavorUrl);
 		$addMediaAPIUrl = $this->createAPIUrl("job/add_media", $addMediaParams);
@@ -151,4 +170,14 @@ class Cielo24ClientHelper
 	{
 		return $url . "&" . http_build_query($params);
 	}
+
+	public function getLanguageConstantName($language)
+	{
+		$languagesReflectionClass = new ReflectionClass('KalturaLanguage');
+		$languageNames = $languagesReflectionClass->getConstants();
+		$languageName = array_search($language, $languageNames);
+
+		return $languageName !== false ? $languageName : '';
+	}
+
 }

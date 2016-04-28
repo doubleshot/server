@@ -21,60 +21,15 @@ class KalturaTvinciDistributionProfile extends KalturaConfigurableDistributionPr
 	public $password;
 
 	/**
-	 * @var string
+	 * Tags array for Tvinci distribution
+	 * @var KalturaTvinciDistributionTagArray
 	 */
-	public $ismFileName;
-
-	/**
-	 * @var string
-	 */
-	public $ismPpvModule;
-
-	/**
-	 * @var string
-	 */
-	public $ipadnewFileName;
-
-	/**
-	 * @var string
-	 */
-	public $ipadnewPpvModule;
-
-	/**
-	 * @var string
-	 */
-	public $iphonenewFileName;
-
-	/**
-	 * @var string
-	 */
-	public $iphonenewPpvModule;
-
-	/**
-	 * @var string
-	 */
-	public $mbrFileName;
-
-	/**
-	 * @var string
-	 */
-	public $mbrPpvModule;
-
-	/**
-	 * @var string
-	 */
-	public $dashFileName;
-
-	/**
-	 * @var string
-	 */
-	public $dashPpvModule;
+	public $tags;
 
 	/**
 	 * @var string
 	 */
 	public $xsltFile;
-
 
 
 	/*
@@ -85,21 +40,22 @@ class KalturaTvinciDistributionProfile extends KalturaConfigurableDistributionPr
 		'ingestUrl',
 		'username',
 		'password',
-		'ismFileName',
-		'ismPpvModule',
-		'ipadnewFileName',
-		'ipadnewPpvModule',
-		'iphonenewFileName',
-		'iphonenewPpvModule',
-		'mbrFileName',
-		'mbrPpvModule',
-		'dashFileName',
-		'dashPpvModule',
+		'tags',
 		'xsltFile',
 	 );
 		 
 	public function getMapBetweenObjects()
 	{
 		return array_merge(parent::getMapBetweenObjects(), self::$map_between_objects);
+	}
+
+	/**
+	 * @param TvinciDistributionProfile $srcObj
+	 * @param KalturaDetachedResponseProfile $responseProfile
+	 */
+	protected function doFromObject($srcObj, KalturaDetachedResponseProfile $responseProfile = null)
+	{
+		parent::doFromObject($srcObj, $responseProfile);
+		$this->tags = KalturaTvinciDistributionTagArray::fromDbArray($srcObj->getTags());
 	}
 }

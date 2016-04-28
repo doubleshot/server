@@ -51,8 +51,11 @@ class kJobsManager
 		foreach($dbBatchJobLocks as $dbBatchJobLock) {
 			/* @var $dbBatchJobLock BatchJobLock */
 			$dbBatchJob = $dbBatchJobLock->getBatchJob();
-			$dbBatchJob->setMessage("Aborted entry");
-			self::abortDbBatchJob($dbBatchJob);
+			if($dbBatchJob!==null)
+			{
+				$dbBatchJob->setMessage("Aborted entry");
+				self::abortDbBatchJob($dbBatchJob);
+			}
 		}
 	}
 	
@@ -196,6 +199,7 @@ class kJobsManager
 			//Boost the job by setting priority and urjeny to 1 
 			$job->setPriority(1);
 			$job->setUrgency(1);
+			$job->save();
 		}
 	}
 	
@@ -995,11 +999,12 @@ class kJobsManager
 	 * @param int $mediaServerIndex
 	 * @param string $filePath
 	 * @param float $endTime
+	 * @param array $amfArray
 	 */
 	public static function addConvertLiveSegmentJob(BatchJob $parentJob = null, liveAsset $asset, $mediaServerIndex, $filePath, $endTime)
 	{
 		$keyType = liveAsset::FILE_SYNC_ASSET_SUB_TYPE_LIVE_PRIMARY;
-		if($mediaServerIndex == MediaServerIndex::SECONDARY)
+		if($mediaServerIndex == EntryServerNodeType::LIVE_BACKUP)
 			$keyType = liveAsset::FILE_SYNC_ASSET_SUB_TYPE_LIVE_SECONDARY;
 			
 		$key = $asset->getSyncKey($keyType);
@@ -1047,7 +1052,7 @@ class kJobsManager
 		$jobData->setFlavorAssetId($asset->getId());
 		$jobData->setOffset($offset);
 		$jobData->setDuration($duration);
- 			
+
  		$entry = $asset->getentry();
  		if($entry && $entry->getStatus() != entryStatus::READY)
 		{
@@ -1213,7 +1218,7 @@ class kJobsManager
 	 * @return BatchJob
 	 */
 	public static function addConvertProfileJob(BatchJob $parentJob = null, entry $entry, $flavorAssetId, $inputFileSyncLocalPath)
-	{	
+	{
 		if($entry->getConversionQuality() == conversionProfile2::CONVERSION_PROFILE_NONE)
 		{
 			$entry->setStatus(entryStatus::PENDING);
@@ -1414,16 +1419,15 @@ class kJobsManager
 	 * @param int $destCategoryId the destination category id
 	 * @param bool $moveFromChildren indicates that all entries from all child categories should be moved as well
 	 * @param bool $copyOnly indicates that the entries shouldn't be deleted from the source entry
+	 * @param $fallback
 	 * @return BatchJob
 	 */
-	public static function addMoveCategoryEntriesJob(BatchJob $parentJob = null, $partnerId, $srcCategoryId, $destCategoryId, $moveFromChildren = false, $copyOnly = false,
-			$fallback = null)
+	public static function addMoveCategoryEntriesJob(BatchJob $parentJob = null, $partnerId, $srcCategoryId, $destCategoryId, $moveFromChildren = false, $fallback = null)
 	{
 		$moveCategoryEntriesData = new kMoveCategoryEntriesJobData();
 	    $moveCategoryEntriesData->setSrcCategoryId($srcCategoryId);
 	    $moveCategoryEntriesData->setDestCategoryId($destCategoryId);
 	    $moveCategoryEntriesData->setMoveFromChildren($moveFromChildren);
-	    $moveCategoryEntriesData->setCopyOnly($copyOnly);
 	    $moveCategoryEntriesData->setDestCategoryFullIds($fallback);
 		
 		$batchJob = null;

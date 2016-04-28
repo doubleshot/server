@@ -141,6 +141,7 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 	const DEFAULT_IMAGE_WIDTH = 640;
 
 	const CAPABILITIES = "capabilities";
+	const TEMPLATE_ENTRY_ID = "templateEntryId";
 
 	private $appears_in = null;
 
@@ -149,7 +150,11 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 	private $data_content = null;
 	
 	private $desired_version = null;
-	
+
+	//An attribute that contains the rules by which this entry was created, only in case it was created
+	// via clone operation
+	private $clone_options = null;
+
 	private $archive_extension = null;
 	
 	private static $mediaTypeNames = array(
@@ -908,7 +913,27 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 	{
 		return $this->archive_extension;
 	}
-	
+
+	/**
+	 * The method returns the var_dumpd_options, in case the entry was created via clone operation.
+	 * Otherwise; it returns null
+	 * @return null|array kBaseEntryCloneOptionComponent
+     */
+	public function getCloneOptions()
+	{
+		return $this->clone_options;
+	}
+
+
+	/**
+	 * The method sets the options by which the current entry was cloned.
+	 * @param array $cloneOptionsArray
+     */
+	public function setCloneOptions(array $cloneOptionsArray)
+	{
+		$this->clone_options = $cloneOptionsArray;
+	}
+
 	// will work only for types that the data can be served as an a response to the service
 	public function getDataContent ( $from_cache = false )
 	{
@@ -1827,7 +1852,10 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 
 	public function setSourceEntryId($v)	{ $this->putInCustomData("sourceEntryId", $v); }
 	public function getSourceEntryId() 		{ return $this->getFromCustomData( "sourceEntryId", null, null ); }
-	
+
+	public function setReachedMaxRecordingDuration ( $v )	{	$this->putInCustomData ( "reachedMaxRecordingDuration" , (bool) $v );	}
+	public function getReachedMaxRecordingDuration() 	{	return (bool) $this->getFromCustomData( "reachedMaxRecordingDuration" ,null, false );	}
+		
 	public function getParentEntry()
 	{
 		if(!$this->getParentEntryId())
@@ -1845,7 +1873,7 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 	public function getaccessControl(PropelPDO $con = null)
 	{
 		if(!$this->getParentEntryId())
-			return parent::getaccessControl($con);
+			return accessControlPeer::retrieveByPK($this->access_control_id, $con);
 			
 		$parentEntry = $this->getParentEntry();
 		if($parentEntry)
@@ -1917,25 +1945,40 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 	
 	public function getEntitledKusersEdit()
 	{
-		$entitledUserPuserEdit = $this->getFromCustomData( "entitledUserPuserEdit", null, 0 );
-		if (!$entitledUserPuserEdit)
-			return '';
-
-		return implode(',', array_keys(unserialize($entitledUserPuserEdit)));
+		return implode(',', array_keys($this->getEntitledUserPuserEditArray()));
 	}
 	
 	public function getEntitledPusersEdit()
 	{
-		$entitledUserPuserEdit = $this->getFromCustomData( "entitledUserPuserEdit", null, 0 );
-		if (!$entitledUserPuserEdit)
-			return '';
-			
-		return implode(',', unserialize($entitledUserPuserEdit));
+		return implode(',', $this->getEntitledUserPuserEditArray());
 	}
 	
-	public function isEntitledKuserEdit( $kuserId )
+	public function isEntitledKuserEdit($kuserId, $useUserGroups = true)
 	{
-		return in_array( trim($kuserId), explode( ',', $this->getEntitledKusersEdit() ) );
+		$entitledKuserArray = array_keys($this->getEntitledUserPuserEditArray());
+		if(in_array(trim($kuserId), $entitledKuserArray))
+			return true;
+
+		if($useUserGroups == true)
+		{
+			$kuserKGroupIds = KuserKgroupPeer::retrieveKgroupIdsByKuserIds(array($kuserId));
+			foreach($kuserKGroupIds as $groupKId)
+			{
+				if(in_array($groupKId, $entitledKuserArray))
+					return true;
+			}
+
+		}
+		return false;
+	}
+
+	private function getEntitledUserPuserEditArray()
+	{
+		$entitledUserPuserEdit = $this->getFromCustomData( "entitledUserPuserEdit", null, 0 );
+		if (!$entitledUserPuserEdit)
+			return array();
+
+		return unserialize($entitledUserPuserEdit);
 	}
 
 	public function setEntitledPusersPublish($v)
@@ -1989,9 +2032,23 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 		return implode(',', unserialize($entitledUserPuserPublish));
 	}
 	
-	public function isEntitledKuserPublish( $kuserId )
+	public function isEntitledKuserPublish($kuserId, $useUserGroups = true)
 	{
-		return in_array( trim($kuserId), explode( ',', $this->getEntitledKusersPublish() ) );
+		$entitledKusersArray = explode(',', $this->getEntitledKusersPublish());
+		if(in_array(trim($kuserId), $entitledKusersArray))
+			return true;
+
+		if($useUserGroups == true)
+		{
+			$kuserKGroupIds = KuserKgroupPeer::retrieveKgroupIdsByKuserIds(array($kuserId));
+			foreach($kuserKGroupIds as $groupKId)
+			{
+				if(in_array($groupKId, $entitledKusersArray))
+					return true;
+			}
+		}
+
+		return false;	
 	}
 
 	public function getRoots()
@@ -2591,6 +2648,7 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 				$flavorParamIdsArray[] = $flavorAsset->getFlavorParamsId();
 			}
 			asort($flavorParamIdsArray);
+			$flavorParamIdsArray = array_unique($flavorParamIdsArray);
 			$flavorParamIds = implode(",", $flavorParamIdsArray);
 			$this->setFlavorParamsIds($flavorParamIds);
 		}
@@ -2989,7 +3047,8 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 		$clazz = get_class($this);
 		$copyObj = new $clazz();
 		/* @var $copyObj entry */
-		
+
+		$copyObj->setTemplateEntryId($this->id);
 		$copyObj->setKuserId($this->kuser_id);
 		$copyObj->setName($this->name);
 		$copyObj->setTags($this->tags);
@@ -3194,6 +3253,23 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 	{
 		$this->setSource($value);
 	}
+
+	public function addClonePendingEntry($entryId)
+	{
+		$clonePendingEntries = $this->getClonePendingEntries();
+		$clonePendingEntries[] = $entryId;
+		$this->setClonePendingEntries($clonePendingEntries);
+	}
+
+	public function setClonePendingEntries(array $clonePendingEntries)
+	{
+		$this->putInCustomData("clonePendingEntries", $clonePendingEntries);
+	}
+
+	public function getClonePendingEntries()
+	{
+		return $this->getFromCustomData("clonePendingEntries", null, array());
+	}
 	
 	/**
 	 * 
@@ -3388,5 +3464,59 @@ class entry extends Baseentry implements ISyncableFile, IIndexable, IOwnable, IR
 		parent::copyInto($copyObj,$deepCopy);
 		$copyObj->setEntitledPusersEdit($this->getEntitledPusersEdit());
 		$copyObj->setEntitledPusersPublish($this->getEntitledPusersPublish());
+	}
+	
+	public function getkshow(PropelPDO $con = null)
+	{
+		return kshowPeer::retrieveByPK($this->kshow_id, $con);
+	}
+	
+	public function getconversionProfile2(PropelPDO $con = null)
+	{
+		return conversionProfile2Peer::retrieveByPK($this->conversion_profile_id, $con);
+	}
+
+	/**
+	 * @param int $property
+	 * @param bool $shouldClone
+	 * @return bool
+	 */
+	public function shouldCloneByProperty($property, $shouldClone = true)
+	{
+		if (!is_null($this->clone_options))
+		{
+			foreach ($this->clone_options as $cloneOption)
+			{
+				if ($cloneOption->getItemType() == $property)
+				{
+					$currentRule = $cloneOption->getRule();
+					if ($currentRule == CloneComponentSelectorType::EXCLUDE_COMPONENT)
+						$shouldClone = false;
+					else if ($currentRule == CloneComponentSelectorType::INCLUDE_COMPONENT)
+						$shouldClone = true;
+					break;
+				}
+			}
+		}
+		return $shouldClone;
+	}
+
+	public function getReferenceIdWithMd5()
+	{
+		$refId = $this->getReferenceID();
+		if ( $refId != null )
+			$refId .= " " . mySearchUtils::getMd5EncodedString($refId);
+
+		return $refId;
+	}
+
+	public function getTemplateEntryId()
+	{
+		return $this->getFromCustomData(self::TEMPLATE_ENTRY_ID);
+	}
+	
+	public function setTemplateEntryId($v)
+	{
+		$this->putInCustomData(self::TEMPLATE_ENTRY_ID, $v);
 	}
 }

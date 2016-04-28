@@ -523,7 +523,7 @@ class kPermissionManager implements kObjectCreatedEventConsumer, kObjectChangedE
 		}
 
 		$ks = ks::fromSecureString($ksString);
-		$ksSetRoleId = $ks->getSetRole();
+		$ksSetRoleId = $ks->getRole();
 
 		if ($ksSetRoleId)
 		{
@@ -624,11 +624,11 @@ class kPermissionManager implements kObjectCreatedEventConsumer, kObjectChangedE
 		
 		// init requested partner
 		if (!is_null(self::$requestedPartnerId)) {
-			$requestedPartner = PartnerPeer::retrieveByPK(self::$requestedPartnerId);
+			$requestedPartner = PartnerPeer::retrieveActiveByPK(self::$requestedPartnerId);
 			if (!$requestedPartner)
 			{
 				KalturaLog::crit('Unknown partner id ['.self::$requestedPartnerId.']');
-				throw new kCoreException("Unknown partner Id [" . self::$requestedPartnerId ."]", kCoreException::ID_NOT_FOUND);
+				throw new kCoreException("Unknown partner Id [" . self::$requestedPartnerId ."]", kCoreException::PARTNER_BLOCKED);
 			}
 		}
 		
@@ -825,7 +825,7 @@ class kPermissionManager implements kObjectCreatedEventConsumer, kObjectChangedE
 		if (isset(self::$map[self::API_PARAMETERS_ARRAY_NAME][$array_name][$objectName][kApiParameterPermissionItem::ALL_VALUES_IDENTIFIER])) {
 			return true;
 		}
-		return isset(self::$map[self::API_PARAMETERS_ARRAY_NAME][$array_name][$objectName][$paramName]);
+		return isset(self::$map[self::API_PARAMETERS_ARRAY_NAME][$array_name][$objectName][$paramName]) || isset(self::$map[self::API_PARAMETERS_ARRAY_NAME]['all'][$objectName][$paramName]);
 		
 	}
 	

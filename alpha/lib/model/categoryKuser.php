@@ -44,7 +44,7 @@ class categoryKuser extends BasecategoryKuser implements IIndexable{
 	
 	public function setPuserId($puserId)
 	{
-		if ( self::getPuserId() == $puserId )  // same value - don't set for nothing 
+		if ( $this->getPuserId() == $puserId )  // same value - don't set for nothing 
 			return;
 
 		parent::setPuserId($puserId);
@@ -74,7 +74,7 @@ class categoryKuser extends BasecategoryKuser implements IIndexable{
 	 */
 	public function setKuserId($kuserId)
 	{
-		if ( self::getKuserId() == $kuserId )  // same value - don't set for nothing 
+		if ( $this->getKuserId() == $kuserId )  // same value - don't set for nothing 
 			return;
 
 		parent::setKuserId($kuserId);
@@ -175,32 +175,10 @@ class categoryKuser extends BasecategoryKuser implements IIndexable{
 				
 			$category->save();
 		}
-		
-		$this->addIndexCategoryInheritedTreeJob($category->getFullIds());
-		$category->indexToSearchIndex();
-	}
-	
-	public function addIndexCategoryInheritedTreeJob($fullIdsStartsWithCategoryId)
-	{
-		$featureStatusToRemoveIndex = new kFeatureStatus();
-		$featureStatusToRemoveIndex->setType(IndexObjectType::CATEGORY);
-		
-		$featureStatusesToRemove = array();
-		$featureStatusesToRemove[] = $featureStatusToRemoveIndex;
 
-		$filter = new categoryFilter();
-		$filter->setFullIdsStartsWith($fullIdsStartsWithCategoryId);
-		$filter->setInheritanceTypeEqual(InheritanceType::INHERIT);
-		
-		$c = KalturaCriteria::create(categoryPeer::OM_CLASS);		
-		$filter->attachToCriteria($c);		
-		KalturaCriterion::disableTag(KalturaCriterion::TAG_ENTITLEMENT_CATEGORY);
-		$categories = categoryPeer::doSelect($c);
-		KalturaCriterion::restoreTag(KalturaCriterion::TAG_ENTITLEMENT_CATEGORY);
-		
-		if(count($categories))
-			kJobsManager::addIndexJob($this->getPartnerId(), IndexObjectType::CATEGORY, $filter, true, $featureStatusesToRemove);
+		$category->indexCategoryInheritedTree();
 	}
+
 	
 	public function reSetCategoryFullIds()
 	{

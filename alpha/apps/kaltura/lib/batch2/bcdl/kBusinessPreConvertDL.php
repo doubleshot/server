@@ -417,6 +417,7 @@ class kBusinessPreConvertDL
 		
 		$flavorParams->setDynamicAttributes($dynamicAttributes);
 			
+		self::adjustAssetParams($entryId, array($flavorParams));
 		$flavor = self::validateFlavorAndMediaInfo($flavorParams, $mediaInfo, $errDescription);
 		
 		if (is_null($flavor))
@@ -452,7 +453,14 @@ class kBusinessPreConvertDL
 		{
 			return null;
 		}
-		
+
+			/*
+			 * Add at rest encryption  
+			 */
+		if($flavor->_isEncrypted==true){
+			self::setEncryptionAtRest($flavor, $flavorAsset);
+		}
+
 		if(!$flavorAsset->getIsOriginal())
 			$flavor->setReadyBehavior(flavorParamsConversionProfile::READY_BEHAVIOR_IGNORE); // should not be taken in completion rules check
 		
@@ -486,6 +494,7 @@ class kBusinessPreConvertDL
 					KalturaLog::log("Creating flavor params output for asset [" . $tagedFlavorAsset->getId() . "]");
 				
 					$flavorParams = assetParamsPeer::retrieveByPK($tagedFlavorAsset->getId());
+					self::adjustAssetParams($entryId, array($flavorParams));
 					$flavorParamsOutput = self::validateFlavorAndMediaInfo($flavorParams, $mediaInfo, $errDescription);
 					
 					if (is_null($flavorParamsOutput))
@@ -541,6 +550,7 @@ class kBusinessPreConvertDL
 			KalturaLog::log("Validate Conversion Profile, media info [" . $mediaInfo->getId() . "]");
 		}
 		
+		self::adjustAssetParams($entryId, $flavors);
 		// call the decision layer
 		KalturaLog::log("Generate Target " . count($flavors) . " Flavors supplied");
 		$cdl = KDLWrap::CDLGenerateTargetFlavors($mediaInfo, $flavors);
@@ -697,7 +707,6 @@ class kBusinessPreConvertDL
 		// sort the flavors to decide which one will be performed first
 		usort($finalFlavors, array('kBusinessConvertDL', 'compareFlavors'));
 		KalturaLog::log(count($finalFlavors) . " flavors sorted for execution");
-	
 		return $finalFlavors;
 	}
 
@@ -1116,7 +1125,10 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 		{
 			if($ingestedNeeded)
 			{
-				kJobsManager::updateBatchJob($convertProfileJob, BatchJob::BATCHJOB_STATUS_FINISHED);
+				if ($entry->getStatus() != entryStatus::PRECONVERT)
+				{
+					kJobsManager::updateBatchJob($convertProfileJob, BatchJob::BATCHJOB_STATUS_FINISHED);
+				}
 				return false;
 			}
 			else
@@ -1271,6 +1283,12 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 			{
 				continue;
 			}
+				/*
+				 * Add at rest encryption  
+				 */
+			if($flavor->_isEncrypted==true){
+				self::setEncryptionAtRest($flavor, $flavorAsset);
+			}
 			
 			$collectionTag = $flavor->getCollectionTag();
 			/*
@@ -1424,6 +1442,7 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 		{
 			KalturaLog::log("Source flavor asset requires conversion");
 				
+			self::adjustAssetParams($entryId, array($sourceFlavor));
 			$srcSyncKey = $originalFlavorAsset->getSyncKey(flavorAsset::FILE_SYNC_FLAVOR_ASSET_SUB_TYPE_ASSET);
 			$errDescription = null;
 			$sourceFlavorOutput = self::validateFlavorAndMediaInfo($sourceFlavor, $mediaInfo, $errDescription);
@@ -1441,6 +1460,14 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 				
 				kJobsManager::updateBatchJob($convertProfileJob, BatchJob::BATCHJOB_STATUS_FAILED);
 				return false;
+			}
+			/*
+			 * If the conversion profile contains source flavor and the source is tagged with 'save_source' ==> 
+			 * save the original source asset in another asset, in order 
+			 * to prevent its liquidated by the inter-source asset.
+			 */
+			if(isset($sourceFlavor) && array_search(assetParams::TAG_SAVE_SOURCE,$sourceFlavor->getTagsArray())!==false) {
+				self::saveOriginalSource($mediaInfo);
 			}
 		}
 		elseif($mediaInfo) 
@@ -1460,25 +1487,8 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 			 * to prevent its liquidated by the inter-source asset.
 			 * But, do it only if the conversion profile contains source flavor
 			 */
-			if($sourceFlavor) 
-			{
-				$sourceAsset = assetPeer::retrieveById($mediaInfo->getFlavorAssetId());
-				$copyFlavorParams = assetParamsPeer::retrieveBySystemName(self::SAVE_ORIGINAL_SOURCE_FLAVOR_PARAM_SYS_NAME);
-				if (!$copyFlavorParams)
-					throw new APIException(APIErrors::OBJECT_NOT_FOUND);
-				
-				$asset = $sourceAsset->copy();
-				$asset->setFlavorParamsId($copyFlavorParams->getId());
-				$asset->setFromAssetParams($copyFlavorParams);
-				$asset->setStatus(flavorAsset::ASSET_STATUS_READY);
-				$asset->setIsOriginal(0);
-				$asset->setTags($copyFlavorParams->getTags());
-				$asset->incrementVersion();
-				$asset->save();
-				kFileSyncUtils::createSyncFileLinkForKey($asset->getSyncKey(asset::FILE_SYNC_ASSET_SUB_TYPE_ASSET), $sourceAsset->getSyncKey(asset::FILE_SYNC_ASSET_SUB_TYPE_ASSET));
-				$origFileSync = kFileSyncUtils::getLocalFileSyncForKey($sourceAsset->getSyncKey(asset::FILE_SYNC_ASSET_SUB_TYPE_ASSET));
-				$asset->setSize(intval($origFileSync->getFileSize()/1000));		
-				$asset->save();
+			if(isset($sourceFlavor)) {
+				self::saveOriginalSource($mediaInfo);
 			}
 		}
 		
@@ -1487,7 +1497,7 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 			 * is a source flavor that contains transcoder settings.
 			 * Looks for a '_passthrough' flag on the source's flavor params output.
 			 */
-		if(!$sourceFlavorOutput || $sourceFlavorOutput->_passthrough==true)
+		if(!isset($sourceFlavorOutput) || $sourceFlavorOutput->_passthrough==true)
 			return true;
 		
 		// save flavor params
@@ -1533,7 +1543,12 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 				
 		$originalFlavorAsset->setStatus(flavorAsset::FLAVOR_ASSET_STATUS_CONVERTING);
 		if(isset($sourceFlavor)) {
-			$originalFlavorAsset->addTags($sourceFlavor->getTagsArray());
+			$tagsArr = $sourceFlavor->getTagsArray();
+				// No need for 'save_source' tag on the inter-src asset, remove it.
+			if(($key=array_search(assetParams::TAG_SAVE_SOURCE, $tagsArr))!==false) {
+				unset($tagsArr[$key]);
+			}
+			$originalFlavorAsset->addTags($tagsArr);
 			$originalFlavorAsset->setFileExt($sourceFlavorOutput->getFileExt());
 			$originalFlavorAsset->save();
 		}
@@ -1548,7 +1563,33 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 		kJobsManager::addFlavorConvertJob(array($srcSyncKey), $sourceFlavorOutput, $originalFlavorAsset->getId(), $conversionProfileId, $mediaInfoId, $parentJob);
 		return false;
 	}
-
+	
+		/*
+		 * Save the original source asset in another asset, in order 
+		 * to prevent its liquidation by the inter-source asset.
+		 */
+	private static function saveOriginalSource($mediaInfo)
+	{
+		$sourceAsset = assetPeer::retrieveById($mediaInfo->getFlavorAssetId());
+		$copyFlavorParams = assetParamsPeer::retrieveBySystemName(self::SAVE_ORIGINAL_SOURCE_FLAVOR_PARAM_SYS_NAME);
+		if (!$copyFlavorParams)
+			throw new APIException(APIErrors::OBJECT_NOT_FOUND);
+		
+		$asset = $sourceAsset->copy();
+		$asset->setFlavorParamsId($copyFlavorParams->getId());
+		$asset->setFromAssetParams($copyFlavorParams);
+		$asset->setStatus(flavorAsset::ASSET_STATUS_READY);
+		$asset->setIsOriginal(0);
+		$asset->setTags($copyFlavorParams->getTags());
+		$asset->incrementVersion();
+		$asset->save();
+		kFileSyncUtils::createSyncFileLinkForKey($asset->getSyncKey(asset::FILE_SYNC_ASSET_SUB_TYPE_ASSET), $sourceAsset->getSyncKey(asset::FILE_SYNC_ASSET_SUB_TYPE_ASSET));
+		$origFileSync = kFileSyncUtils::getLocalFileSyncForKey($sourceAsset->getSyncKey(asset::FILE_SYNC_ASSET_SUB_TYPE_ASSET));
+		$origFileSync = kFileSyncUtils::resolve($origFileSync);
+		$asset->setSize(intval($origFileSync->getFileSize()/1000));		
+		$asset->save();
+	}
+	
 	private static function setError($errDescription, BatchJob $batchJob, $batchJobType, $entryId)
 	{
 		$batchJob = kJobsManager::failBatchJob($batchJob, $errDescription, $batchJobType);
@@ -1649,5 +1690,103 @@ KalturaLog::log("Forcing (create anyway) target $matchSourceHeightIdx");
 			}
 		}	
 		return $shouldConvert;	
+	}
+	
+	/**
+	 * 
+	 * @param string $entryId
+	 * @param array<assetParams> $flavors
+	 */
+	protected static function adjustAssetParams($entryId, array $flavors)
+	{
+		$assetParamsAdjusters = KalturaPluginManager::getPluginInstances('IKalturaAssetParamsAdjuster');
+		foreach($assetParamsAdjusters as $assetParamsAdjuster)
+		{
+			/* @var $assetParamsAdjuster IKalturaAssetParamsAdjuster */
+			$assetParamsAdjuster->adjustAssetParams($entryId, $flavors);
+		}
+	}
+
+	/**
+	 * 
+	 * @param flavorParamsOutput $flavor
+	 * @param flavorAsset $flavorAsset
+	 */
+	protected static function setEncryptionAtRest($flavor, $flavorAsset)
+	{
+		KalturaLog::log("for asset".$flavorAsset->getId());
+		$encryptionParams = self::acquireEncryptionParams($flavorAsset->getEntryId(), $flavorAsset->getId(), $flavorAsset->getPartnerId());
+		$commandLines = $flavor->getCommandLines();
+		KalturaLog::log("CommandLines Pre:".serialize($commandLines));
+			// Update the cmd-lines with correct key/key_id values
+		$commandLines = str_replace ( 
+			array(KDLFlavor::ENCRYPTION_KEY_PLACEHOLDER, KDLFlavor::ENCRYPTION_KEY_ID_PLACEHOLDER), 
+			array(bin2hex(base64_decode($encryptionParams->key)), bin2hex(base64_decode($encryptionParams->key_id))),
+			$commandLines);
+			// Save updated cmd-lines
+		$flavor->setCommandLines($commandLines);
+		$flavor->save();
+			// Save encryption key on flavorAsset obj
+		$flavorAsset->setEncryptionKey($encryptionParams->key);
+		$flavorAsset->save();
+	}
+
+	/**
+	 * Get the encryption key and key_id from the udrm service.
+	 * @param string $entryId
+	 * @param string $assetId
+	 * @param string $partnerId
+	 */
+	protected static function acquireEncryptionParams($entryId, $assetId, $partnerId)
+	{
+			/*
+			 * UDRM 'signing_key' and 'internal_encryption_url' should be stored in the drm.ini
+			 * If not exist - exception 
+			 */
+		$licenseServerUrl = kConf::get('internal_encryption_url', 'drm', null);
+		if(!(isset($licenseServerUrl))) {
+			$errMsg = "Encryption: Missing 'internal_encryption_url' ";
+			KalturaLog::err($errMsg);
+			throw new kCoreException($errMsg , KDLErrors::Encryption);
+		}
+		$signingKey = kConf::get('signing_key', 'drm', null);
+		if(!(isset($signingKey))) {
+			$errMsg = "Encryption: Missing 'signing_key' ";
+			KalturaLog::err($errMsg);
+			throw new kCoreException($errMsg , KDLErrors::Encryption);
+		}
+		KalturaLog::log("Successfully retrieved UDRM 'internal_encryption_url' and 'signing_key' vals");
+
+			/*
+			 * Prepare data for the UDRM service curl call
+			 */
+		$requestInfo["ca_system"] = "ovp";
+		$requestInfo["account_id"] = $partnerId;
+		$requestInfo["content_id"] = $entryId;
+		$requestInfo["files"] = $assetId;
+		
+		$jsonPostData = json_encode($requestInfo);
+		$signature = urlencode(base64_encode(sha1($signingKey . $jsonPostData, true)));
+		$serviceURL = $licenseServerUrl.'/cenc/widevine/encryption?signature=' . $signature;
+		$ch = curl_init($serviceURL);
+		curl_setopt($ch, CURLOPT_HTTPHEADER,array('Content-type: application/json')	);
+		curl_setopt($ch, CURLOPT_POST, true);
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPostData);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+		KalturaLog::log("calling UDRM service - serviceURL($serviceURL), data ($jsonPostData)");
+
+		$output = curl_exec($ch);
+		if ($output === false){
+			$errMsg = "Encryption: Could not get UDRM Data,error message 'Curl had an error '".curl_error($ch)."'";
+			KalturaLog::err($errMsg);
+			throw new kCoreException($errMsg , KDLErrors::Encryption);
+		}
+		$retVal = json_decode($output);
+		if (!(is_array($retVal) && isset($retVal[0]->key_id))){
+			$errMsg = "Encryption: Did got invalid result from udrm service, output ($output)";
+			KalturaLog::err($errMsg);
+			throw new kCoreException($errMsg , KDLErrors::Encryption);
+		}
+		return $retVal[0];
 	}
 }

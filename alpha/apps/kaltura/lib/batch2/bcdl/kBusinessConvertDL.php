@@ -2,6 +2,21 @@
 
 class kBusinessConvertDL
 {
+
+
+private static function shouldDeleteMissingAssetDuringReplacement($oldAsset,$entry)
+{
+	if ($oldAsset instanceof flavorAsset) {
+		// In case of live recording entry Don't drop the old asset
+		if ($entry->getSourceType() != EntrySourceType::RECORDED_LIVE)
+			return true;
+	}
+	elseif ($oldAsset instanceof thumbAsset)
+		return true;
+
+	return false;
+}
+
 	/**
 	 * @param entry $entry
 	 * @param entry $tempEntry
@@ -95,10 +110,9 @@ class kBusinessConvertDL
 				}
 
 			}
-			//If the old asset is not set for replacement by its paramsId and type, delete it.
 			elseif($oldAsset instanceof flavorAsset || $oldAsset instanceof thumbAsset)
 			{
-				if($entry->getReplacementOptions()->getKeepManualThumbnails() && $oldAsset instanceof thumbAsset && !$oldAsset->getFlavorParamsId())
+				if($oldAsset instanceof thumbAsset && $oldAsset->keepOnEntryReplacement())
 				{
 					KalturaLog::info("KeepManualThumbnails ind is set, manual thumbnail is not deleted [" . $oldAsset->getId() . "]");
 					if($oldAsset->hasTag(thumbParams::TAG_DEFAULT_THUMB))
@@ -106,10 +120,9 @@ class kBusinessConvertDL
 						$defaultThumbAssetOld = $oldAsset;
 					}
 				}
-				else 
+				elseif(self::shouldDeleteMissingAssetDuringReplacement($oldAsset,$entry))
 				{
 					KalturaLog::info("Delete old asset [" . $oldAsset->getId() . "] for paramsId [" . $oldAsset->getFlavorParamsId() . "]");
-	
 					$oldAsset->setStatus(flavorAsset::FLAVOR_ASSET_STATUS_DELETED);
 					$oldAsset->setDeletedAt(time());
 					$oldAsset->save();

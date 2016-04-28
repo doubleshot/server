@@ -13,6 +13,9 @@ class KDLFlavor extends KDLMediaDataSet {
 	const MissingContentNonComplyFlagBit = 4;
 	const ForceCommandLineFlagBit = 8;
 	const FrameSizeNonComplyFlagBit = 16;
+	
+	const ENCRYPTION_KEY_PLACEHOLDER = "__ENCRYPTION_KEY__";
+	const ENCRYPTION_KEY_ID_PLACEHOLDER = "__ENCRYPTION_KEY_ID__";
 
 	/* ---------------------
 	 * Data
@@ -40,6 +43,8 @@ class KDLFlavor extends KDLMediaDataSet {
 	public 	$_fastSeekTo = true;
 	
 	public $_optimizationPolicy = KDLOptimizationPolicy::BitrateFlagBit;
+	
+	public $_isEncrypted = false; // CENC encryption
 	
 	public	$_transcoders = array();
 
@@ -481,11 +486,21 @@ $plannedDur = 0;
 			
 			/*
 			 * Fading needs explicit time limitation on the WM image loop. 
-			 * We'll do it with '_explicitClipDur' field 
+			 * We'll do it with '_explicitClipDur' field.
+			 * 
+			 * Check each WM data object for multiple-WM mode
 			 */
-		if(!isset($target->_explicitClipDur) && isset($target->_video)
-		&& isset($target->_video->_watermarkData) && isset($target->_video->_watermarkData->fade)){
-			$target->_explicitClipDur = $sourceDur;
+		if(!isset($target->_explicitClipDur) && isset($target->_video) && isset($target->_video->_watermarkData)){
+			if(is_array($target->_video->_watermarkData))
+				$watermarkDataArr = $target->_video->_watermarkData;
+			else
+				$watermarkDataArr = array($target->_video->_watermarkData);
+			foreach($watermarkDataArr as $watermarkData){
+				if(isset($watermarkData->fade)){
+					$target->_explicitClipDur = $sourceDur;
+					break;
+				}
+			}
 		}
 
 			/*
@@ -507,7 +522,7 @@ $plannedDur = 0;
 			&& isset($source->_container) && $source->_container->IsFormatOf(array("mxf")) 
 			&& isset($source->_video) && $source->_video->IsFormatOf(array("mpeg video","mpeg2video")) 
 			&& isset($source->_video->_width) && $source->_video->_width==720
-			&& isset($source->_video->_height) && ($source->_video->_height==608 || $source->_video->_height==576)){
+			&& isset($source->_video->_height) && ($source->_video->_height==608 || $source->_video->_height==576 || $source->_video->_height==486)){
 				$this->_video->_isCropIMX=true;
 			}
 			else {
@@ -520,24 +535,25 @@ $plannedDur = 0;
 			 * In case it does and the flavor has 'multiStream' set to 'auto-detect' (default action) -
 			 * try to define a multiStream processing setup
 			 */
-		$sourceAnalize = self::analizeSourceContentStreams($source->_contentStreams);
-			/*
-			 * Check analyze realts for
-			 * - 'streamsAsChannels' - process them as sorround streams
-			 * - 'languages - process them as multi-lingual
-			 * - otherwise remove the 'multiStream' object'
-			 */
-		if(isset($sourceAnalize->streamsAsChannels)){
-			$target->_multiStream = self::sorroundAudioSurceToTarget($source, $target->_multiStream, $sourceAnalize->streamsAsChannels);
+		if (isset($source->_contentStreams)){
+		    $sourceAnalize = self::analizeSourceContentStreams($source->_contentStreams);
+			    /*
+			    * Check analyze realts for
+			    * - 'streamsAsChannels' - process them as sorround streams
+			    * - 'languages - process them as multi-lingual
+			    * - otherwise remove the 'multiStream' object'
+			    */
+		    if(isset($sourceAnalize->streamsAsChannels)){
+			    $target->_multiStream = self::sorroundAudioSurceToTarget($source, $target->_multiStream, $sourceAnalize->streamsAsChannels);
+		    }
+		    else if(isset($sourceAnalize->languages)){
+			    $target->_multiStream = self::multiLingualAudioSurceToTarget($source, $target->_multiStream, $sourceAnalize->languages);
+		    }
+		    else {
+			    $target->_multiStream = null;
+		    }
 		}
-		else if(isset($sourceAnalize->languages)){
-			$target->_multiStream = self::multiLingualAudioSurceToTarget($source, $target->_multiStream, $sourceAnalize->languages);
-		}
-		else {
-			$target->_multiStream = null;
-		}
-				
-		
+
 		if($target->_container->_id==KDLContainerTarget::COPY){
 			$target->_container->_id=self::EvaluateCopyContainer($source->_container);
 		}
@@ -582,8 +598,12 @@ $plannedDur = 0;
 					$flvrVid= $this->_video;
 					$param1=null;
 					$param2=null;
-					if(isset($flvrVid->_bitRate) && $flvrVid->_bitRate>0 && isset($srcVid->_bitRate) && $srcVid->_bitRate>0
-					&& $flvrVid->_bitRate/KDLConstants::FlavorBitrateComplianceFactor<$srcVid->_bitRate) 
+					/*
+					 * The BitrateCompliance condition prevented some of flavors to be signed as  'Framesize-non-comply'.
+					 * Therefore it was removed.
+					 */
+		//			if(isset($flvrVid->_bitRate) && $flvrVid->_bitRate>0 && isset($srcVid->_bitRate) && $srcVid->_bitRate>0
+		//			&& $flvrVid->_bitRate/KDLConstants::FlavorBitrateComplianceFactor<$srcVid->_bitRate) 
 					{
 						if(isset($flvrVid->_width) && $flvrVid->_width>0 && isset($trgVid->_width) && $trgVid->_width 
 						&& $flvrVid->_width>$trgVid->_width/KDLConstants::FlavorFrameSizeComplianceFactor) {
@@ -624,7 +644,11 @@ $plannedDur = 0;
 		$target->_audio = null;
 		if($this->_audio!=""){
 			if($source->_audio!=""){
-				$target->_audio = $this->evaluateTargetAudio($source->_audio, $target, $source->_contentStreams);
+				if (isset($source->_contentStreams)){
+					$target->_audio = $this->evaluateTargetAudio($source->_audio, $target, $source->_contentStreams);
+				}else{
+					$target->_audio = $this->evaluateTargetAudio($source->_audio, $target, null);
+				}
 				/*
 				 * On multi-lingual flavor, 
 				 * if required language does not exist - set NonComply flag 
@@ -781,7 +805,15 @@ $plannedDur = 0;
 		 * the constants theshold.
 		 */
 		$this->evaluateTargetVideoFramerate($sourceVid, $targetVid);
-				
+		
+		/*
+		 * COPY does not require following settings
+		 */
+		if($targetVid->_id==KDLVideoTarget::COPY) {
+			$targetVid->_watermarkData = null;
+			return $targetVid;
+		}
+		
 		/*
 		 * GOP - if gop not set, set it to 2sec according to the required frame rate,
 		 * otherwise if gop param is in sec (_isGopInSec) ==> calculate form framerate,
@@ -804,28 +836,10 @@ $plannedDur = 0;
 			}
 		}
 
-		/*
-		 * Watermark - evaluate scale value in case of 'percentage-of-the-source'
-		 * Sample 'scale' value "x30%" stands for - 
-		 * make the height to be 30% of the source, calculate the width to match the height
-		 */
-		if(isset($targetVid->_watermarkData) && isset($targetVid->_watermarkData->scale)){
-			$scaleArrNew = array();
-			$scaleArr = explode("x",$targetVid->_watermarkData->scale);
-			foreach ($scaleArr as $i=>$val){
-				if(isset($val) && strlen($val)>0) {
-					$arr = explode('%', $val);
-					if(count($arr)==2){
-						if(isset($sourceVid->_width) && isset($sourceVid->_height)) {
-							$val = round(($i==0?$sourceVid->_width: $sourceVid->_height)*$arr[0]/100);
-						}
-						else $val = "";
-					}
-				}
-				$scaleArrNew[$i] = $val;
-			}
-			$targetVid->_watermarkData->scale = implode('x', $scaleArrNew);
-		}
+			/*
+			 * Watermarks, if any ...
+			 */
+		self::evaluateTargetWaterMark($sourceVid, $targetVid);
 		
 		$targetVid->_rotation = $sourceVid->_rotation;
 		$targetVid->_scanType = $sourceVid->_scanType;
@@ -987,11 +1001,22 @@ $plannedDur = 0;
 			 * Fixed target frame size
 			 */
 		else if($shrinkToSource) {
-			if($target->_width>$widSrc) {
-				$target->_width=$widSrc;
-			}
+			$darTrg = $target->_width/$target->_height;
 			if($target->_height>$hgtSrc) {
 				$target->_height=$hgtSrc;
+			}
+				/*
+				 * If the target AR is similar/close (up to 10%) to the src AR,
+				 * just trim to the source dims.
+				 * Otherwise (src AR != trg AR) - calc the trg wid from trg AR and hgt.
+				 */
+			if(abs(1-$darTrg/$darSrcFrame)<0.1) {
+				if($target->_width>$widSrc) {
+					$target->_width=$widSrc;
+				}
+			}
+			else {
+				$target->_width = $target->_height*$darTrg;
 			}
 		}
 
@@ -1202,6 +1227,55 @@ $plannedDur = 0;
 		return $target->_frameRate;
 	}
 
+	/**
+	 * evaluateTargetWaterMark
+	 * Evaluate scale value in case of 'percentage-of-the-source'
+	 * Sample 'scale' value "x30%" stands for - 
+	 * make the height to be 30% of the source, calculate the width to match the height
+	 * 
+	 * @param KDLVideoData $target
+	 * @param KDLVideoData $target
+	 */
+	private static function evaluateTargetWaterMark(KDLVideoData $sourceVid, KDLVideoData $target) 
+	{
+		if(!isset($target->_watermarkData))
+			return;
+		
+		/*
+		 * Handle multiple WM settings - WMdata array
+		 */
+		if(is_array($target->_watermarkData))
+			$watermarkDataArr = $target->_watermarkData;
+		else
+			$watermarkDataArr = array($target->_watermarkData);
+		foreach($watermarkDataArr as $wmI=>$watermarkData){
+			if(isset($watermarkData->scale)){
+				$scaleArrNew = array();
+				$scaleArr = explode("x",$watermarkData->scale);
+				foreach ($scaleArr as $i=>$val){
+					if(isset($val) && strlen($val)>0) {
+						$percentArr = explode('%', $val);
+						if(count($percentArr)==2){
+							if(isset($sourceVid->_width) && isset($sourceVid->_height)) {
+								// For 'portrait' sources (rotation -90,90,270) - switch the scaled dims
+								if(isset($sourceVid->_rotation) && in_array($sourceVid->_rotation, array(-90,90,270)))
+									$val =($i==0?$sourceVid->_height: $sourceVid->_width);
+								else
+									$val =($i==0?$sourceVid->_width: $sourceVid->_height);
+								$val = round($val*$percentArr[0]/100);
+							}
+							else $val = "";
+						}
+					}
+					$scaleArrNew[$i] = $val;
+				}
+				$watermarkData->scale = implode('x', $scaleArrNew);
+			}
+			$watermarkDataArr[$wmI] = $watermarkData;
+		}
+		$target->_watermarkData = $watermarkDataArr;
+	}
+	
 	/* ---------------------------
 	 * evaluateTargetAudio
 	 */
@@ -1210,10 +1284,13 @@ $plannedDur = 0;
 		/*
 		 * Adjust source channnels count to match the mapping settings
 		 */
-		$multiStream = $target->_multiStream;
+		if (isset($target->_multiStream)){
+			$multiStream = $target->_multiStream;
+		}else{
+			$multiStream = null;
+		}
 		$multiStreamChannels = null;
-		if(isset($multiStream) && isset($multiStream->audio)
-		&& isset($multiStream->audio->mapping) && count($multiStream->audio->mapping)>0) {
+		if(isset($multiStream->audio->mapping) && count($multiStream->audio->mapping)>0) {
 			if(count($multiStream->audio->mapping)>1){
 				$multiStreamChannels = 2;
 			}

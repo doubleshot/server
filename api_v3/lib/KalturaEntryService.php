@@ -322,7 +322,7 @@ class KalturaEntryService extends KalturaBaseService
 			if(!$mediaServer)
 				throw new KalturaAPIException(KalturaErrors::NO_MEDIA_SERVER_FOUND, $dbLiveEntry->getId());
 				
-			$mediaServerLiveService = $mediaServer->getWebService(MediaServer::WEB_SERVICE_LIVE);
+			$mediaServerLiveService = $mediaServer->getWebService($mediaServer->getLiveWebServiceName());
 			if($mediaServerLiveService && $mediaServerLiveService instanceof KalturaMediaServerLiveService)
 			{
 				$mediaServerLiveService->splitRecordingNow($dbLiveEntry->getId());
@@ -331,7 +331,7 @@ class KalturaEntryService extends KalturaBaseService
 			}
 			else 
 			{
-				throw new KalturaAPIException(KalturaErrors::MEDIA_SERVER_SERVICE_NOT_FOUND, $mediaServer->getId(), MediaServer::WEB_SERVICE_LIVE);
+				throw new KalturaAPIException(KalturaErrors::MEDIA_SERVER_SERVICE_NOT_FOUND, $mediaServer->getId(), $mediaServer->getLiveWebServiceName());
 			}
 			return $dbAsset;
 		}
@@ -466,6 +466,7 @@ class KalturaEntryService extends KalturaBaseService
 	 */
 	protected function attachFile($entryFullPath, entry $dbEntry, asset $dbAsset = null, $copyOnly = false)
 	{
+		$ext = pathinfo($entryFullPath, PATHINFO_EXTENSION);
 		// TODO - move image handling to media service
 		if($dbEntry->getMediaType() == KalturaMediaType::IMAGE)
 		{
@@ -484,16 +485,21 @@ class KalturaEntryService extends KalturaBaseService
 				if ($exifData && isset($exifData["DateTimeOriginal"]) && $exifData["DateTimeOriginal"])
 				{
 					$mediaDate = $exifData["DateTimeOriginal"];
-					$ts = strtotime($mediaDate);
 					
 					// handle invalid dates either due to bad format or out of range
-					if ($ts === -1 || $ts === false || $ts < strtotime('2000-01-01') || $ts > strtotime('2015-01-01'))
-						$mediaDate = null;
-					
+					if (!strtotime($mediaDate)){
+						$mediaDate=null;
+					}
 					$dbEntry->setMediaDate($mediaDate);
 				}
 			}
-			
+
+			$allowedImageTypes = kConf::get("image_file_ext");
+			if (in_array($ext, $allowedImageTypes))
+				$dbEntry->setData("." . $ext);		
+ 			else		
+ 				$dbEntry->setData(".jpg");
+
 			list($width, $height, $type, $attr) = getimagesize($entryFullPath);
 			$dbEntry->setDimensions($width, $height);
 			$dbEntry->setData(".jpg"); // this will increase the data version
@@ -531,7 +537,6 @@ class KalturaEntryService extends KalturaBaseService
 			$dbEntry->save();
 		}
 		
-		$ext = pathinfo($entryFullPath, PATHINFO_EXTENSION);
 		$dbAsset->setFileExt($ext);
 		$dbAsset->save();
 		
@@ -799,10 +804,11 @@ class KalturaEntryService extends KalturaBaseService
 		
 		if (!$resource->getForceAsyncDownload())
 		{
+			$ext = pathinfo($url, PATHINFO_EXTENSION);
 			// TODO - move image handling to media service
     		if($dbEntry->getMediaType() == KalturaMediaType::IMAGE)
     		{
-    			$entryFullPath = myContentStorage::getFSUploadsPath() . '/' . $dbEntry->getId() . '.jpg';
+			    $entryFullPath = myContentStorage::getFSUploadsPath() . '/' . $dbEntry->getId() . '.' . $ext;
     			if (KCurlWrapper::getDataFromFile($url, $entryFullPath))
     				return $this->attachFile($entryFullPath, $dbEntry, $dbAsset);
     			
@@ -815,7 +821,6 @@ class KalturaEntryService extends KalturaBaseService
     	
     		if($dbAsset && !($dbAsset instanceof flavorAsset))
     		{
-    			$ext = pathinfo($url, PATHINFO_EXTENSION);
     			$entryFullPath = myContentStorage::getFSUploadsPath() . '/' . $dbEntry->getId() . '.' . $ext;
     			if (KCurlWrapper::getDataFromFile($url, $entryFullPath))
     			{
@@ -910,7 +915,7 @@ class KalturaEntryService extends KalturaBaseService
 	protected function prepareEntryForInsert(KalturaBaseEntry $entry, entry $dbEntry = null)
 	{
 		// create a default name if none was given
-		if (!$entry->name)
+		if (!$entry->name && !($dbEntry && $dbEntry->getName()))
 			$entry->name = $this->getPartnerId().'_'.time();
 			
 		if ($entry->licenseType === null)
@@ -948,7 +953,7 @@ class KalturaEntryService extends KalturaBaseService
 	 */
 	protected function add(KalturaBaseEntry $entry, $conversionProfileId = null)
 	{
-		$dbEntry = $this->duplicateTemplateEntry($conversionProfileId);
+		$dbEntry = $this->duplicateTemplateEntry($conversionProfileId, $entry->templateEntryId);
 		if ($dbEntry)
 		{
 			$dbEntry->save();
@@ -956,19 +961,25 @@ class KalturaEntryService extends KalturaBaseService
 		return $this->prepareEntryForInsert($entry, $dbEntry);
 	}
 	
-	protected function duplicateTemplateEntry($conversionProfileId)
+	protected function duplicateTemplateEntry($conversionProfileId, $templateEntryId)
 	{
-		$dbEntry = null;
-		$conversionProfile = myPartnerUtils::getConversionProfile2ForPartner($this->getPartnerId(), $conversionProfileId);
-		if($conversionProfile && $conversionProfile->getDefaultEntryId())
+		if(!$templateEntryId)
 		{
-			$templateEntry = entryPeer::retrieveByPKNoFilter($conversionProfile->getDefaultEntryId(), null, false);
+			$conversionProfile = myPartnerUtils::getConversionProfile2ForPartner($this->getPartnerId(), $conversionProfileId);
+			if($conversionProfile)
+				$templateEntryId = $conversionProfile->getDefaultEntryId();
+		}
+		
+		if($templateEntryId)
+		{
+			$templateEntry = entryPeer::retrieveByPKNoFilter($templateEntryId, null, false);
 			if ($templateEntry)
 			{
-				$dbEntry = $templateEntry->copyTemplate(true);
+				return $templateEntry->copyTemplate(true);
 			}
 		}
-		return $dbEntry;
+		
+		return null;
 	}
 	
 	/**
@@ -1245,15 +1256,19 @@ class KalturaEntryService extends KalturaBaseService
    	 * @param entry $dbEntry
    	 */
 	protected function checkAndSetValidUserInsert(KalturaBaseEntry $entry, entry $dbEntry)
-	{
+	{	
 		// for new entry, puser ID is null - set it from service scope
 		if ($entry->userId === null)
 		{
 			KalturaLog::debug("Set kuser id [" . $this->getKuser()->getId() . "] line [" . __LINE__ . "]");
-			$dbEntry->setPuserId($this->getKuser()->getPuserId());
-			$dbEntry->setKuserId($this->getKuser()->getId());
 			$dbEntry->setCreatorKuserId($this->getKuser()->getId());
 			$dbEntry->setCreatorPuserId($this->getKuser()->getPuserId());
+			
+			if($dbEntry->getKuserId())
+				return;
+		
+			$dbEntry->setPuserId($this->getKuser()->getPuserId());
+			$dbEntry->setKuserId($this->getKuser()->getId());
 			return;
 		}
 		

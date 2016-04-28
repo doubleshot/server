@@ -6,9 +6,9 @@
 class kAccessControlServeRemoteEdgeServerAction extends kRuleAction 
 {
 	/**
-	 * @var array
+	 * @var string
 	 */
-	protected $edgeServerIds = array();
+	protected $edgeServerIds;
 	
 	
 	public function __construct() 
@@ -31,27 +31,33 @@ class kAccessControlServeRemoteEdgeServerAction extends kRuleAction
 		$this->edgeServerIds = $edgeServerIds;
 	}
 	
-	public function applyDeliveryProfileDynamicAttributes(DeliveryProfileDynamicAttributes $deliveryAttributes)
+	public function getRegiteredNodeServers()
 	{
 		$edgeServerIds = explode(',', $this->getEdgeServerIds());
-		$deliveryAttributes->setEdgeServerIds($edgeServerIds);
+		$edgeServers = ServerNodePeer::retrieveRegisteredServerNodesArrayByPKs($edgeServerIds);
+		
+		return $edgeServers;
+	}
 	
-		//Check if there are any edge server that override the delivery profiles
-		$edgeServers = EdgeServerPeer::retrieveByPKs($edgeServerIds);
+	public function applyDeliveryProfileDynamicAttributes(DeliveryProfileDynamicAttributes $deliveryAttributes)
+	{	
+		$edgeServers = $this->getRegiteredNodeServers();
+		
 		if(!count($edgeServers))
 			return false;
-	
-		$edgeDeliveryProfilesIds = array();
+		
+		$activeEdgeServerIds = array();
 		foreach ($edgeServers as $edgeServer)
 		{
-			if(!$edgeServer->getDeliveryProfileIds())
-				continue;
-			$edgeDeliveryProfilesIds = array_merge($edgeDeliveryProfilesIds, explode(",", $edgeServer->getDeliveryProfileIds()));
+			/* @var $edgeServer EdgeServerNode */
+			if($edgeServer->validateEdgeTreeRegistered())
+				$activeEdgeServerIds[] = $edgeServer->getId();
 		}
-	
-		if(count($edgeDeliveryProfilesIds))
-			$deliveryAttributes->setDeliveryProfileIds($edgeDeliveryProfilesIds, false);
 		
+		if(!count($activeEdgeServerIds))
+			return false;
+		
+		$deliveryAttributes->setEdgeServerIds($activeEdgeServerIds);
 		return true;
 	}
 }

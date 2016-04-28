@@ -9,8 +9,9 @@
  */
 class LiveStreamService extends KalturaLiveEntryService
 {
-	const ISLIVE_ACTION_CACHE_EXPIRY = 30;
-	const ISLIVE_ACTION_CONDITIONAL_CACHE_EXPIRY = 10;
+	const ISLIVE_ACTION_CACHE_EXPIRY_WHEN_NOT_LIVE = 10;
+	const ISLIVE_ACTION_CACHE_EXPIRY_WHEN_LIVE = 30;
+	const ISLIVE_ACTION_NON_KALTURA_LIVE_CONDITIONAL_CACHE_EXPIRY = 10;
 	const HLS_LIVE_STREAM_CONTENT_TYPE = 'application/vnd.apple.mpegurl';
 
 	public function initService($serviceId, $serviceName, $actionName)
@@ -132,12 +133,15 @@ class LiveStreamService extends KalturaLiveEntryService
 	 * @action authenticate
 	 * @param string $entryId Live stream entry id
 	 * @param string $token Live stream broadcasting token
+	 * @param string $hostname Media server host name
+	 * @param KalturaEntryServerNodeType $mediaServerIndex Media server index primary / secondary
+	 * @param string $applicationName the application to which entry is being broadcast
 	 * @return KalturaLiveStreamEntry The authenticated live stream entry
 	 * 
 	 * @throws KalturaErrors::ENTRY_ID_NOT_FOUND
 	 * @throws KalturaErrors::LIVE_STREAM_INVALID_TOKEN
 	 */
-	function authenticateAction($entryId, $token)
+	function authenticateAction($entryId, $token, $hostname = null, $mediaServerIndex = null, $applicationName = null)
 	{
 		$dbEntry = entryPeer::retrieveByPK($entryId);
 		if (!$dbEntry || $dbEntry->getType() != entryType::LIVE_STREAM)
@@ -147,35 +151,15 @@ class LiveStreamService extends KalturaLiveEntryService
 		if ($dbEntry->getStreamPassword() != $token)
 			throw new KalturaAPIException(KalturaErrors::LIVE_STREAM_INVALID_TOKEN, $entryId);
 
-		$mediaServer = $dbEntry->getMediaServer(true);
-		if($mediaServer)
-		{
-			$url = null;
-			$protocol = null;
-			foreach (array(KalturaPlaybackProtocol::HLS, KalturaPlaybackProtocol::APPLE_HTTP) as $hlsProtocol)
-			{
-				$config = $dbEntry->getLiveStreamConfigurationByProtocol($hlsProtocol, requestUtils::PROTOCOL_HTTP, null, true);
-				if ($config)
-				{
-					$url = $config->getUrl();
-					$protocol = $hlsProtocol;
-					break;
-				}
-			}
-			
-			if($url)
-			{
-				KalturaLog::info('Determining status of live stream URL [' .$url. ']');
-				$dpda= new DeliveryProfileDynamicAttributes();
-				$dpda->setEntryId($entryId);
-				$dpda->setFormat($protocol);
-				$deliveryProfile = DeliveryProfilePeer::getLiveDeliveryProfileByHostName(parse_url($url, PHP_URL_HOST), $dpda);
-				if($deliveryProfile && $deliveryProfile->isLive($url))
-				{
-					throw new KalturaAPIException(KalturaErrors::LIVE_STREAM_ALREADY_BROADCASTING, $entryId, $mediaServer->getHostname());
-				}
-			}
-		}
+		/*
+		Patch for autenticate error while performing an immidiate stop/start. Checkup for duplicate streams moved to
+		media-server for the moment. 
+		if($dbEntry->isStreamAlreadyBroadcasting())
+			throw new KalturaAPIException(KalturaErrors::LIVE_STREAM_ALREADY_BROADCASTING, $entryId, $mediaServer->getHostname());
+		*/
+		
+		if($hostname && isset($mediaServerIndex))
+			$this->setMediaServerWrapper($dbEntry, $mediaServerIndex, $hostname, KalturaEntryServerNodeStatus::AUTHENTICATED, $applicationName);
 		
 		// fetch current stream live params
 		$liveParamsIds = flavorParamsConversionProfilePeer::getFlavorIdsByProfileId($dbEntry->getConversionProfileId());
@@ -196,7 +180,7 @@ class LiveStreamService extends KalturaLiveEntryService
 		$entries = entryPeer::doSelect($baseCriteria);
 	
 		$maxInputStreams = $this->getPartner()->getMaxLiveStreamInputs();
-		if(is_null($maxInputStreams))
+		if(!$maxInputStreams)
 			$maxInputStreams = kConf::get('partner_max_live_stream_inputs', 'local', 10);
 		KalturaLog::debug("Max live stream inputs [$maxInputStreams]");
 			
@@ -204,7 +188,7 @@ class LiveStreamService extends KalturaLiveEntryService
 		if(PermissionPeer::isValidForPartner(PermissionName::FEATURE_KALTURA_LIVE_STREAM_TRANSCODE, $this->getPartnerId()))
 		{
 			$maxTranscodedStreams = $this->getPartner()->getMaxLiveStreamOutputs();
-			if(is_null($maxTranscodedStreams))
+			if(!$maxTranscodedStreams)
 				$maxTranscodedStreams = kConf::get('partner_max_live_stream_outputs', 'local', 10);
 		}
 		KalturaLog::debug("Max live stream outputs [$maxTranscodedStreams]");
@@ -371,8 +355,6 @@ class LiveStreamService extends KalturaLiveEntryService
 	 */
 	public function isLiveAction ($id, $protocol)
 	{
-		KalturaResponseCacher::setExpiry(self::ISLIVE_ACTION_CACHE_EXPIRY);
-		KalturaResponseCacher::setConditionalCacheExpiry(self::ISLIVE_ACTION_CONDITIONAL_CACHE_EXPIRY);
 		if (!kCurrentContext::$ks)
 		{
 			kEntitlementUtils::initEntitlementEnforcement(null, false);
@@ -390,12 +372,15 @@ class LiveStreamService extends KalturaLiveEntryService
 		
 		if (!$liveStreamEntry || ($liveStreamEntry->getType() != entryType::LIVE_STREAM))
 			throw new KalturaAPIException(KalturaErrors::INVALID_ENTRY_ID, $id);
-		
+
+		if (!in_array($liveStreamEntry->getSource(), LiveEntry::$kalturaLiveSourceTypes))
+			KalturaResponseCacher::setConditionalCacheExpiry(self::ISLIVE_ACTION_NON_KALTURA_LIVE_CONDITIONAL_CACHE_EXPIRY);
+
 		/* @var $liveStreamEntry LiveStreamEntry */
 	
 		if(in_array($liveStreamEntry->getSource(), array(KalturaSourceType::LIVE_STREAM, KalturaSourceType::LIVE_STREAM_ONTEXTDATA_CAPTIONS)))
 		{
-			return $liveStreamEntry->hasMediaServer();
+			return $this->responseHandlingIsLive($liveStreamEntry->hasMediaServer());
 		}
 		
 		$dpda= new DeliveryProfileDynamicAttributes();
@@ -419,8 +404,8 @@ class LiveStreamService extends KalturaLiveEntryService
 				KalturaLog::info('Determining status of live stream URL [' .$url. ']');
 				
 				$urlManager = DeliveryProfilePeer::getLiveDeliveryProfileByHostName(parse_url($url, PHP_URL_HOST), $dpda);
-				if($urlManager) 
-					return $urlManager->isLive($url);
+				if($urlManager)
+					return $this->responseHandlingIsLive($urlManager->isLive($url));
 				break;
 				
 			case KalturaPlaybackProtocol::HDS:
@@ -432,14 +417,28 @@ class LiveStreamService extends KalturaLiveEntryService
 					KalturaLog::info('Determining status of live stream URL [' .$url . ']');
 					$urlManager = DeliveryProfilePeer::getLiveDeliveryProfileByHostName(parse_url($url, PHP_URL_HOST), $dpda);
 					if($urlManager)
-						return $urlManager->isLive($url);
+						return $this->responseHandlingIsLive($urlManager->isLive($url));
 				}
 				break;
 		}
 		
 		throw new KalturaAPIException(KalturaErrors::LIVE_STREAM_STATUS_CANNOT_BE_DETERMINED, $protocol);
 	}
-	
+
+	private function responseHandlingIsLive($isLive)
+	{
+		if (!$isLive){
+			KalturaResponseCacher::setExpiry(self::ISLIVE_ACTION_CACHE_EXPIRY_WHEN_NOT_LIVE);
+			KalturaResponseCacher::setHeadersCacheExpiry(self::ISLIVE_ACTION_CACHE_EXPIRY_WHEN_NOT_LIVE);
+		} else {
+			KalturaResponseCacher::setExpiry(self::ISLIVE_ACTION_CACHE_EXPIRY_WHEN_LIVE);
+			KalturaResponseCacher::setHeadersCacheExpiry(self::ISLIVE_ACTION_CACHE_EXPIRY_WHEN_LIVE);
+		}
+
+		return $isLive;
+	}
+
+
 	/**
 	 * Add new pushPublish configuration to entry
 	 * 

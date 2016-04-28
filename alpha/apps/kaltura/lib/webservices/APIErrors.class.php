@@ -356,7 +356,7 @@ class APIErrors
 	
 	const NEW_PASSWORD_HASH_KEY_INVALID = "NEW_PASSWORD_HASH_KEY_INVALID;;Given hash key is invalid";
 	
-	const NEW_PASSWORD_HASH_KEY_EXPIRED = "NEW_PASSWORD_HASH_KEY_EXPIRED;;Given has key has expired";
+	const NEW_PASSWORD_HASH_KEY_EXPIRED = "NEW_PASSWORD_HASH_KEY_EXPIRED;;Given hash key has expired";
 	
 	const CANT_UPDATE_PARAMETER = "CANT_UPDATE_PARAMETER;PARAM_NAME;The following parameter cannot be updated [@PARAM_NAME@]";
 	
@@ -417,4 +417,6 @@ class APIErrors
 	const UNKNOWN_RESPONSE_FORMAT = "UNKNOWN_RESPONSE_FORMAT;FORMAT;Response format provided [@FORMAT@] is not recognized by server";
 	
 	const PROFILE_STATUS_DISABLED = "PROFILE_STATUS_DISABLED;PROFILE_ID;Export action failed since profile [@PROFILE_ID@] is disabled";
+
+	const UNSAFE_HTML_TAGS = "UNSAFE_HTML_TAGS;CLASS_NAME,PROPERTY_NAME;Potential Unsafe HTML tags found in [@CLASS_NAME@]::[@PROPERTY_NAME@]";
 }
